@@ -8,8 +8,8 @@ from PySide6.QtCore import Qt, QPointF, QObject, Signal, QRectF
 from PySide6.QtGui import QTransform, QPen, QBrush
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsEllipseItem
 
-from editor_tif.utils.qt import numpy_to_qpixmap
-from editor_tif.utils.io import load_image_data  # para from_source_id
+from editor_tif.infrastructure.qt_image import numpy_to_qpixmap
+from editor_tif.infrastructure.tif_io import load_image_data  # para from_source_id
 
 
 @dataclass

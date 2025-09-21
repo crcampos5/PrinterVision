@@ -3,7 +3,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QToolBar
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QActionGroup
 from PySide6.QtCore import Qt
-from editor_tif.utils.modes import EditorMode
+from editor_tif.presentation.modes import EditorMode
 
 ICON_DIR = Path(__file__).resolve().parents[1] / "resources" / "icons"
 

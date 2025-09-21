@@ -4,9 +4,9 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Qt
 from shiboken6 import Shiboken
 
-from editor_tif.views.scene_items import ImageItem
-from editor_tif.utils.modes import EditorMode
-from editor_tif.commands import TransformItemCommand
+from editor_tif.presentation.views.scene_items import ImageItem
+from editor_tif.presentation.modes import EditorMode
+from editor_tif.domain.commands.commands import TransformItemCommand
 
 
 # -----------------------------

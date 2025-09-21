@@ -1,0 +1,160 @@
+# src/editor_tif/domain/models/template.py
+from __future__ import annotations
+
+from dataclasses import dataclass, field, asdict
+from enum import Enum
+from typing import Dict, Tuple, Any
+import uuid
+import json
+
+
+class FitMode(str, Enum):
+    """
+    Estrategia de escalado del ítem respecto al contorno destino.
+    - FIT_SHORT: ajusta usando el eje corto del bounding box del contorno.
+    - FIT_LONG: ajusta usando el eje largo del bounding box del contorno.
+    - FIT_WIDTH: ajusta usando el ancho del bounding box del contorno.
+    - FIT_HEIGHT: ajusta usando el alto del bounding box del contorno.
+    - STRETCH: estira de forma no uniforme para llenar (scale_x != scale_y).
+    - NONE: no escala (útil si ya trabajas a escala física).
+    """
+    FIT_SHORT = "fit_short"
+    FIT_LONG = "fit_long"
+    FIT_WIDTH = "fit_width"
+    FIT_HEIGHT = "fit_height"
+    STRETCH = "stretch"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class ContourSignature:
+    """
+    Firma geométrica mínima y agnóstica de UI de un contorno.
+    Todas las unidades en coordenadas de escena (tu sistema de unidades),
+    y ángulos en grados (convención antihoraria).
+    """
+    cx: float           # centroide X
+    cy: float           # centroide Y
+    width: float        # ancho del bounding box del contorno
+    height: float       # alto del bounding box del contorno
+    angle_deg: float    # orientación principal del contorno (ej. eje mayor)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "ContourSignature":
+        return ContourSignature(**data)
+
+
+@dataclass(frozen=True)
+class PlacementRule:
+    """
+    Reglas relativas ítem ↔ contorno capturadas al crear la plantilla.
+
+    - anchor_norm: punto de anclaje del ítem en coordenadas normalizadas
+      de su caja (0..1, 0..1). (0.5, 0.5) -> centro del ítem.
+    - offset_norm: desplazamiento normalizado dentro del bbox del contorno,
+      expresado en el marco local del contorno antes de rotar (0..1, 0..1).
+      (0.5, 0.5) -> centro del bbox del contorno.
+    - rotation_offset_deg: desfase angular fijo a sumar a la orientación del contorno.
+    - fit_mode: estrategia de escalado (ver FitMode).
+    - keep_aspect_ratio: si True, fuerza escala uniforme (x=y) cuando aplique.
+    """
+    anchor_norm: Tuple[float, float] = (0.5, 0.5)
+    offset_norm: Tuple[float, float] = (0.5, 0.5)
+    rotation_offset_deg: float = 0.0
+    fit_mode: FitMode = FitMode.FIT_SHORT
+    keep_aspect_ratio: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["fit_mode"] = self.fit_mode.value
+        return d
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "PlacementRule":
+        data = dict(data)
+        data["fit_mode"] = FitMode(data.get("fit_mode", FitMode.FIT_SHORT))
+        return PlacementRule(**data)
+
+
+@dataclass(frozen=True)
+class Placement:
+    """
+    Resultado de una colocación (transformación final).
+    Separa el cálculo del modelo: útil si decides que services/placement.py
+    haga la matemática y devuelva este valor.
+    - tx, ty: posición final del punto de anclaje del ítem en escena.
+    - rotation_deg: rotación total del ítem.
+    - scale_x, scale_y: escalas a aplicar al ítem (uniformes o no).
+    """
+    tx: float
+    ty: float
+    rotation_deg: float
+    scale_x: float
+    scale_y: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "Placement":
+        return Placement(**data)
+
+
+@dataclass
+class Template:
+    """
+    Entidad de dominio que describe cómo replicar un ítem (p. ej., un TIFF)
+    sobre contornos similares, conservando la relación geométrica que se
+    estableció al crear la plantilla.
+
+    Campos clave:
+    - id: UUID único de la plantilla.
+    - item_source_id: identificador lógico del recurso del ítem.
+      Puede ser una ruta, un id interno, o una clave de repositorio.
+    - item_original_size: (w, h) tamaño base del ítem en unidades de escena.
+      Se usa como referencia para el escalado relativo.
+    - base_contour: firma del contorno con el que se creó la plantilla.
+      (sirve para auditoría, depuración o cálculos relativos avanzados).
+    - rule: reglas relativas de anclaje/offset/escala/rotación.
+    - meta: diccionario opcional para anotar cualquier información adicional.
+    """
+    item_source_id: str
+    item_original_size: Tuple[float, float]
+    base_contour: ContourSignature
+    rule: PlacementRule = field(default_factory=PlacementRule)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    # -------------------------
+    # SERIALIZACIÓN
+    # -------------------------
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "item_source_id": self.item_source_id,
+            "item_original_size": list(self.item_original_size),
+            "base_contour": self.base_contour.to_dict(),
+            "rule": self.rule.to_dict(),
+            "meta": self.meta,
+        }
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "Template":
+        return Template(
+            id=data.get("id", str(uuid.uuid4())),
+            item_source_id=data["item_source_id"],
+            item_original_size=tuple(data["item_original_size"]),
+            base_contour=ContourSignature.from_dict(data["base_contour"]),
+            rule=PlacementRule.from_dict(data["rule"]),
+            meta=data.get("meta", {}),
+        )
+
+    def to_json(self, *, indent: int | None = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @staticmethod
+    def from_json(s: str) -> "Template":
+        return Template.from_dict(json.loads(s))

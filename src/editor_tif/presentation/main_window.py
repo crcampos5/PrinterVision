@@ -11,23 +11,23 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QPointF
 
-from editor_tif.models.image_document import ImageDocument
-from editor_tif.utils.qt import numpy_to_qpixmap
-from editor_tif.views.image_viewer import ImageViewer
-from editor_tif.views.workspace_dialog import WorkspaceDialog
-from editor_tif.views.scene_items import ImageItem, Layer, CentroidItem
-from editor_tif.views.properties_dock import PropertiesDock
-from editor_tif.utils.io import load_image_data
-from editor_tif.views.toolbar_manager import ToolbarManager
-from editor_tif.views.selection_handler import SelectionHandler
-from editor_tif.utils.modes import EditorMode
-from editor_tif.processing.placement import clone_item_to_centroids
+from editor_tif.domain.models.image_document import ImageDocument
+from editor_tif.infrastructure.qt_image import numpy_to_qpixmap
+from editor_tif.presentation.views.image_viewer import ImageViewer
+from editor_tif.presentation.views.workspace_dialog import WorkspaceDialog
+from editor_tif.presentation.views.scene_items import ImageItem, Layer, CentroidItem
+from editor_tif.presentation.views.properties_dock import PropertiesDock
+from editor_tif.infrastructure.tif_io import load_image_data
+from editor_tif.presentation.views.toolbar_manager import ToolbarManager
+from editor_tif.presentation.views.selection_handler import SelectionHandler
+from editor_tif.presentation.modes import EditorMode
+from editor_tif.domain.services.placement import clone_item_to_centroids
 
 # 👇 nuevos módulos propuestos en src/editor_tif/
-from editor_tif.commands import (
+from editor_tif.domain.commands.commands import (
     AddItemCommand, RemoveItemCommand, TransformItemCommand, PasteItemsCommand
 )
-from editor_tif.clipboard import serialize_items, deserialize_items
+from editor_tif.presentation.clipboard import serialize_items, deserialize_items
 
 
 class MainWindow(QMainWindow):

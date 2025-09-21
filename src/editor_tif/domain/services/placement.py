@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Sequence, Tuple, List, Callable, Optional
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
-from editor_tif.views.scene_items import CentroidItem, ImageItem, Layer
+from editor_tif.presentation.views.scene_items import CentroidItem, ImageItem, Layer
 
 import numpy as np
 

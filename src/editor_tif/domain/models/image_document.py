@@ -7,10 +7,10 @@ from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
-from editor_tif.processing.detection import Centroid, detect_centroids, draw_centroids_overlay
-from editor_tif.processing.placement import place_tile_on_centroids
-from editor_tif.utils.io import load_image_data, save_image_tif
-from editor_tif.views.scene_items import Layer
+from editor_tif.domain.services.detection import Centroid, detect_centroids, draw_centroids_overlay
+from editor_tif.domain.services.placement import place_tile_on_centroids
+from editor_tif.infrastructure.tif_io import load_image_data, save_image_tif
+from editor_tif.presentation.views.scene_items import Layer
 
 
 # ------------------------- helpers internos -------------------------

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 # Solo para hints
-from editor_tif.views.scene_items import Layer
+from editor_tif.presentation.views.scene_items import Layer
 
 
 class PropertiesDock(QDockWidget):
