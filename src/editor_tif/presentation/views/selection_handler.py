@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Qt
 from shiboken6 import Shiboken
 
-from editor_tif.presentation.views.scene_items import ImageItem
+from editor_tif.presentation.views.scene_items import ImageItem, ContourItem, CentroidItem
 from editor_tif.presentation.modes import EditorMode
 from editor_tif.domain.commands.commands import TransformItemCommand
 
@@ -99,15 +99,28 @@ class SelectionHandler(QObject):
         if not _is_valid(self._scene):
             return None
         items = self._scene.selectedItems()
-        return items[0] if items else None
+        if not items:
+            return None
+        # Prioriza ImageItem para el panel de propiedades
+        for it in items:
+            if isinstance(it, ImageItem):
+                return it
+        return items[0]
+
 
     def on_selection_changed(self):
         it = self.selected_item()
-        self.main.props.set_layer(it.layer if it else None)
-        if it is not None:
-            self._pre[it] = self._capture(it)
-            self.bind_item(it)
+        img_it = it if isinstance(it, ImageItem) else None
+
+        # Dock: solo con ImageItem
+        self.main.props.set_layer(img_it.layer if img_it else None)
+
+        if img_it is not None:
+            self._pre[img_it] = self._capture(img_it)
+            self.bind_item(img_it)
+
         self._refresh_actions()
+
 
     # -----------------------------
     # Bind de un ImageItem (evita duplicados)
@@ -162,7 +175,7 @@ class SelectionHandler(QObject):
     # -----------------------------
     def on_props_pos(self, x, y):
         it = self.selected_item()
-        if not it:
+        if not isinstance(it, ImageItem):
             return
         old = self._pre.get(it, self._capture(it))
         it.layer.x, it.layer.y = x, y
@@ -174,7 +187,7 @@ class SelectionHandler(QObject):
 
     def on_props_rot(self, angle):
         it = self.selected_item()
-        if not it:
+        if not isinstance(it, ImageItem):
             return
         old = self._pre.get(it, self._capture(it))
         it.layer.rotation = angle
@@ -186,7 +199,7 @@ class SelectionHandler(QObject):
 
     def on_props_scale(self, s):
         it = self.selected_item()
-        if not it:
+        if not isinstance(it, ImageItem):
             return
         old = self._pre.get(it, self._capture(it))
         it.layer.scale = s
@@ -198,7 +211,7 @@ class SelectionHandler(QObject):
 
     def on_props_opacity(self, op):
         it = self.selected_item()
-        if not it:
+        if not isinstance(it, ImageItem):
             return
         it.layer.opacity = op
         it.sync_from_layer()
@@ -208,11 +221,25 @@ class SelectionHandler(QObject):
     # Toolbar / acciones por modo
     # -----------------------------
     def _refresh_actions(self):
-        sel = isinstance(self.selected_item(), ImageItem)
+        # Estado para clonado en modo Centroide (como ya estaba)
+        sel_img_for_clone = isinstance(self.selected_item(), ImageItem)
         if self._mode == EditorMode.CloneByCentroid:
-            self.main.toolbar_manager.set_clone_enabled(sel)
-        else:
-            self.main.toolbar_manager.set_clone_enabled(False)
+            self.main.toolbar_manager.set_clone_enabled(sel_img_for_clone)
+            # Modo centroide: esconder/habilitar plantilla por defecto desde toolbar
+            self.main.toolbar_manager.set_template_enabled(create=False, apply_all=False, apply_sel=False)
+            return
+
+        # Modo Plantilla: 1 ImageItem + 1 Contour (o Centroid) seleccionados
+        items = self._scene.selectedItems() if _is_valid(self._scene) else []
+        n_img = sum(isinstance(it, ImageItem) for it in items)
+        n_contour = sum(isinstance(it, ContourItem) for it in items)
+        n_centroid = sum(isinstance(it, CentroidItem) for it in items)
+
+        create_ok = (n_img == 1) and ((n_contour + n_centroid) == 1)
+        # apply_all/apply_sel: sin conocer si hay plantilla activa, mantenlos en False
+        self.main.toolbar_manager.set_clone_enabled(False)
+        self.main.toolbar_manager.set_template_enabled(create=create_ok, apply_all=False, apply_sel=False)
+
 
     # -----------------------------
     # Utilidades

@@ -1,19 +1,25 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
 from PySide6.QtCore import Qt, QPointF, QObject, Signal, QRectF
-from PySide6.QtGui import QTransform, QPen, QBrush
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsEllipseItem
+from PySide6.QtGui import QTransform, QPen, QBrush, QPolygonF
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsPolygonItem
 
 from editor_tif.infrastructure.qt_image import numpy_to_qpixmap
-from editor_tif.infrastructure.tif_io import load_image_data  # para from_source_id
+from editor_tif.infrastructure.tif_io import load_image_data  # usado en from_source_id
+from editor_tif.domain.models.template import ContourSignature
 
 
+# =========================
+#   DATA: LAYER
+# =========================
 @dataclass
 class Layer:
+    """Capa de imagen con metadata y transformaciones en mm."""
     id: int
     path: Optional[Path]
     pixels: np.ndarray
@@ -22,27 +28,37 @@ class Layer:
     alpha_index: Optional[int] = None
     icc_profile: Optional[bytes] = None
     ink_names: Optional[list[str]] = None
-    # Transformaciones en UNIDADES FÍSICAS (mm):
+
+    # Transformaciones físicas (mm)
     x: float = 0.0
     y: float = 0.0
     rotation: float = 0.0
     scale: float = 1.0
     opacity: float = 1.0
-    # Dimensiones físicas propias (si aplica):
+
+    # Dimensiones físicas (si aplica)
     width_mm: Optional[float] = None
     height_mm: Optional[float] = None
-    # Para copiar/pegar
+
+    # Identificador lógico (para copiar/pegar)
     source_id: Optional[str] = None
 
 
+# =========================
+#   EVENTS
+# =========================
 class _ItemEvents(QObject):
     committed = Signal(object)  # se emite cuando confirmas una interacción
 
 
+# =========================
+#   IMAGE ITEM
+# =========================
 class ImageItem(QGraphicsPixmapItem):
     """
-    Item gráfico en escena "milímetros".
-    - Rotación con Shift + rueda (no afecta el zoom del viewer).
+    Item gráfico en la escena.
+    - Representa un Layer (con unidades físicas mm).
+    - Rotación con Shift+rueda.
     """
 
     def __init__(self, layer: Layer, document, mm_to_scene: float = 1.0):
@@ -53,11 +69,14 @@ class ImageItem(QGraphicsPixmapItem):
             alpha_index=layer.alpha_index,
         )
         super().__init__(pix)
+
         self.layer = layer
         self.document = document
         self.mm_to_scene = float(mm_to_scene)
         self.source_id = layer.source_id or (str(layer.path) if layer.path else "")
         self.events = _ItemEvents()
+
+        # Configuración inicial
         self.setTransformationMode(Qt.SmoothTransformation)
         self.setFlags(
             QGraphicsPixmapItem.ItemIsMovable
@@ -67,11 +86,14 @@ class ImageItem(QGraphicsPixmapItem):
         )
         self.setOpacity(self.layer.opacity)
         self.setTransformOriginPoint(self.boundingRect().center())
+
+        # Centrar el pixmap respecto al origen
         br = self.boundingRect()
         self.setOffset(-br.width() / 2.0, -br.height() / 2.0)
+
         self.sync_from_layer()
 
-    # --- reconstrucción desde identificador (para pegar) ---
+    # --- reconstrucción desde source_id ---
     @classmethod
     def from_source_id(cls, source_id: str, document, mm_to_scene: float = 1.0):
         path = Path(source_id)
@@ -95,8 +117,9 @@ class ImageItem(QGraphicsPixmapItem):
         document.layers.append(layer)
         return cls(layer, document=document, mm_to_scene=mm_to_scene)
 
-    # === Helpers ===
+    # --- resolución física ---
     def _layer_mpp(self) -> Optional[Tuple[float, float]]:
+        """Devuelve milímetros por pixel (x,y)."""
         if self.layer.width_mm is not None and self.layer.height_mm is not None:
             w_mm, h_mm = self.layer.width_mm, self.layer.height_mm
         else:
@@ -108,9 +131,9 @@ class ImageItem(QGraphicsPixmapItem):
         ph, pw = self.layer.pixels.shape[:2]
         if pw == 0 or ph == 0:
             return None
-        return (w_mm / float(pw), h_mm / float(ph))  # (mpp_x, mpp_y)
+        return (w_mm / float(pw), h_mm / float(ph))
 
-    # === Sincronización layer->item ===
+    # --- sync layer -> item ---
     def sync_from_layer(self) -> None:
         self.setPos(self.layer.x * self.mm_to_scene, self.layer.y * self.mm_to_scene)
         self.setOpacity(self.layer.opacity)
@@ -128,28 +151,24 @@ class ImageItem(QGraphicsPixmapItem):
         t.scale(sx_base * s_user, sy_base * s_user)
         self.setTransform(t, False)
 
-    # === Sincronización item->layer (drag en escena) ===
-    def itemChange(self, change, value):  # noqa: N802
+    # --- sync item -> layer (cuando se mueve en escena) ---
+    def itemChange(self, change, value):
         if change == QGraphicsPixmapItem.ItemPositionHasChanged:
             p: QPointF = self.pos()
             self.layer.x = float(p.x()) / self.mm_to_scene
             self.layer.y = float(p.y()) / self.mm_to_scene
         return super().itemChange(change, value)
 
-    # === Rotación con Shift + rueda (pasos de 2°) ===
-    def wheelEvent(self, event):  # noqa: N802
-        # Rotar solo si está presionado Shift (el zoom ya quedó Ctrl+rueda en el viewer)
+    # --- rotación con Shift+rueda ---
+    def wheelEvent(self, event):
         if event.modifiers() & Qt.ShiftModifier:
-            d = event.delta()  # QGraphicsSceneWheelEvent: entero tipo "ticks" (±120 por notch)
+            d = event.delta()  # ±120 por notch
             step = 2.0 if d > 0 else -2.0
             self.layer.rotation += step
             self.sync_from_layer()
-            # Notificamos commit para que quede en el undo/redo como un paso
             self.events.committed.emit(self)
             event.accept()
             return
-
-        # Sin Shift, deja pasar el evento (para scroll normal del view)
         super().wheelEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -160,9 +179,26 @@ class ImageItem(QGraphicsPixmapItem):
         self.events.committed.emit(self)
 
 
+# =========================
+#   CENTROID ITEM
+# =========================
 class CentroidItem(QGraphicsEllipseItem):
-    """Marca de centroide. El (0,0) local es el centro."""
-    def __init__(self, radius_px: float = 6.0, parent=None):
+    """
+    Marca gráfica de un centroide. (0,0) local = centro.
+
+    Además de marcar el centro, este item puede almacenar una firma geométrica
+    mínima del contorno asociado (ancho/alto del bbox y ángulo), para poder
+    generar directamente un ContourSignature.
+    """
+    def __init__(
+        self,
+        radius_px: float = 6.0,
+        *,
+        bbox_width: float = 0.0,
+        bbox_height: float = 0.0,
+        angle_deg: float = 0.0,
+        parent=None,
+    ):
         super().__init__(parent)
         r = float(radius_px)
         self.setRect(QRectF(-r, -r, 2*r, 2*r))
@@ -173,5 +209,90 @@ class CentroidItem(QGraphicsEllipseItem):
         self.setPen(QPen(Qt.green, 1))
         self.setBrush(QBrush(Qt.transparent))
 
-    def center_scene_pos(self):
+        # Firma geométrica mínima del contorno asociado
+        self._bbox_w: float = float(bbox_width)
+        self._bbox_h: float = float(bbox_height)
+        self._angle_deg: float = float(angle_deg)
+
+    # ---- Helpers geométricos ----
+    def center_scene_pos(self) -> QPointF:
+        """Devuelve la posición del centroide en coordenadas de escena."""
         return self.scenePos()
+
+    def set_signature(self, *, bbox_width: float, bbox_height: float, angle_deg: float) -> None:
+        """Actualiza ancho/alto del bbox y ángulo del contorno asociado."""
+        self._bbox_w = float(bbox_width)
+        self._bbox_h = float(bbox_height)
+        self._angle_deg = float(angle_deg)
+
+    def get_signature(self) -> Tuple[float, float, float]:
+        """Obtiene (bbox_width, bbox_height, angle_deg)."""
+        return self._bbox_w, self._bbox_h, self._angle_deg
+
+    # ---- Export directo a dominio ----
+    def to_contour_signature(self) -> ContourSignature:
+        """
+        Crea un ContourSignature (agnóstico de UI) desde este item.
+        - cx, cy: tomados de la posición en escena
+        - width, height, angle_deg: desde su firma local (_bbox_w/_bbox_h/_angle_deg)
+        """
+        pos = self.center_scene_pos()
+        return ContourSignature(
+            cx=float(pos.x()),
+            cy=float(pos.y()),
+            width=self._bbox_w,
+            height=self._bbox_h,
+            angle_deg=self._angle_deg,
+        )
+
+
+class ContourItem(QGraphicsPolygonItem):
+    """
+    Contorno seleccionable. Se construye desde una ContourSignature (cx,cy,w,h,angle).
+    Usamos un bbox rotado (rombo/rectángulo) como representación mínima.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setZValue(-1)  # por encima del fondo, por debajo de los ImageItem
+        self.setFlags(
+            QGraphicsPolygonItem.ItemIsSelectable
+            | QGraphicsPolygonItem.ItemIsFocusable
+        )
+        self.setPen(QPen(Qt.red, 1, Qt.SolidLine))
+        self.setBrush(QBrush(Qt.transparent))
+        self._sig: Optional[ContourSignature] = None
+
+    def set_from_signature(self, sig: ContourSignature):
+        """Construye un rectángulo centrado (w×h) y lo rota en angle_deg, luego lo traslada a (cx,cy)."""
+        self._sig = sig
+        w = float(max(sig.width, 1e-6))
+        h = float(max(sig.height, 1e-6))
+
+        # rect centrado en el origen (local)
+        hw, hh = w * 0.5, h * 0.5
+        poly_local = QPolygonF([
+            QPointF(-hw, -hh), QPointF(+hw, -hh),
+            QPointF(+hw, +hh), QPointF(-hw, +hh)
+        ])
+
+        # rotación
+        t = QTransform()
+        t.rotate(float(sig.angle_deg))
+        poly_rot = t.map(poly_local)
+
+        # traslación a (cx,cy)
+        poly_rot_trans = QPolygonF([QPointF(p.x() + sig.cx, p.y() + sig.cy) for p in poly_rot])
+
+        self.setPolygon(poly_rot_trans)
+
+    def to_contour_signature(self) -> ContourSignature:
+        if self._sig is None:
+            # Si no hay firma almacenada, la reconstruimos aproximando desde el polygon actual
+            poly = self.polygon()
+            if poly.isEmpty():
+                return ContourSignature(0, 0, 0, 0, 0)
+            # bbox axis-aligned
+            br = poly.boundingRect()
+            cx, cy = br.center().x(), br.center().y()
+            return ContourSignature(cx, cy, br.width(), br.height(), 0.0)
+        return self._sig

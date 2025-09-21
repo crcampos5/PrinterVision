@@ -1,4 +1,3 @@
-# editor_tif/views/toolbar_manager.py
 from pathlib import Path
 from PySide6.QtWidgets import QToolBar
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QActionGroup
@@ -21,9 +20,10 @@ def _icon(name: str) -> QIcon:
 class ToolbarManager:
     """
     Barra principal alineada al nuevo flujo:
-      Parametros | Abrir referencia | Guardar resultado | Agregar imagen como ítem
+      Parámetros | Abrir referencia | Guardar resultado | Agregar imagen como ítem
       [Modo] Centroide / Plantilla
-      (Modo Centroide) Clonar en centroides
+      (Centroide) Clonar en centroides
+      (Plantilla) Crear plantilla | Aplicar (todos) | Aplicar (selección)
     """
     def __init__(self, main_window):
         self.main_window = main_window
@@ -41,10 +41,11 @@ class ToolbarManager:
         # Estado inicial
         self.update_mode(EditorMode.CloneByCentroid)
         self.set_clone_enabled(False)
+        self.set_template_enabled(create=False, apply_all=False, apply_sel=False)
 
     # --------------------------------------------------------------------- core
     def _create_core_actions(self):
-        self.act_settings = QAction(_icon("settings.svg"), "Parametros", self.main_window)
+        self.act_settings = QAction(_icon("settings.svg"), "Parámetros", self.main_window)
         self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
         self.act_settings.setStatusTip("Configurar espacio de trabajo")
         self.act_settings.triggered.connect(self.main_window.configure_workspace)
@@ -55,8 +56,6 @@ class ToolbarManager:
         self.act_open_ref.setStatusTip("Abrir imagen de referencia")
         self.act_open_ref.triggered.connect(self.main_window.open_image)
         self.toolbar.addAction(self.act_open_ref)
-
-        # (Eliminado) Cargar .tif — ya no hace parte del flujo.
 
         self.act_save = QAction(_icon("save.svg"), "Guardar resultado", self.main_window)
         self.act_save.setShortcut(QKeySequence.Save)  # Ctrl+S
@@ -104,11 +103,31 @@ class ToolbarManager:
 
     # --------------------------------------------------------------- contextuales
     def _create_context_actions(self):
+        # --- Modo Centroide ---
         self.act_clone_centroids = QAction(_icon("clone.svg"), "Clonar en centroides", self.toolbar)
         self.act_clone_centroids.setShortcut(QKeySequence("Ctrl+Shift+C"))
         self.act_clone_centroids.setStatusTip("Duplicar ítem seleccionado a todos los centroides")
         self.act_clone_centroids.triggered.connect(self.main_window.on_clone_centroids)
         self.toolbar.addAction(self.act_clone_centroids)
+
+        # --- Modo Plantilla ---
+        self.act_tpl_create = QAction(_icon("template-add.svg"), "Crear plantilla", self.toolbar)
+        self.act_tpl_create.setShortcut(QKeySequence("Ctrl+T"))
+        self.act_tpl_create.setStatusTip("Crear plantilla desde la selección (1 ítem + 1 centroide)")
+        self.act_tpl_create.triggered.connect(self.main_window.on_create_template)
+        self.toolbar.addAction(self.act_tpl_create)
+
+        self.act_tpl_apply_all = QAction(_icon("template-apply-all.svg"), "Aplicar (todos)", self.toolbar)
+        self.act_tpl_apply_all.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self.act_tpl_apply_all.setStatusTip("Aplicar plantilla a todos los centroides")
+        self.act_tpl_apply_all.triggered.connect(self.main_window.on_apply_template_all)
+        self.toolbar.addAction(self.act_tpl_apply_all)
+
+        self.act_tpl_apply_sel = QAction(_icon("template-apply-sel.svg"), "Aplicar (selección)", self.toolbar)
+        self.act_tpl_apply_sel.setShortcut(QKeySequence("Ctrl+Alt+T"))
+        self.act_tpl_apply_sel.setStatusTip("Aplicar plantilla a los centroides seleccionados")
+        self.act_tpl_apply_sel.triggered.connect(self.main_window.on_apply_template_selected)
+        self.toolbar.addAction(self.act_tpl_apply_sel)
 
     # ------------------------------------------------------------------- públicos
     def update_mode(self, mode: EditorMode):
@@ -123,10 +142,24 @@ class ToolbarManager:
         # Visibilidad contextual
         self.act_clone_centroids.setVisible(is_centroid)
 
+        self.act_tpl_create.setVisible(not is_centroid)
+        self.act_tpl_apply_all.setVisible(not is_centroid)
+        self.act_tpl_apply_sel.setVisible(not is_centroid)
+
     def set_clone_enabled(self, enabled: bool):
         """Habilita/Deshabilita el botón 'Clonar en centroides'."""
-        
         self.act_clone_centroids.setEnabled(enabled)
+
+    def set_template_enabled(self, *, create: bool, apply_all: bool, apply_sel: bool):
+        """
+        Habilita/Deshabilita acciones del modo Plantilla.
+        - create: requiere 1 ImageItem + 1 CentroidItem seleccionados
+        - apply_all: requiere que exista al menos una plantilla activa
+        - apply_sel: requiere plantilla activa + centroides seleccionados
+        """
+        self.act_tpl_create.setEnabled(create)
+        self.act_tpl_apply_all.setEnabled(apply_all)
+        self.act_tpl_apply_sel.setEnabled(apply_sel)
 
     # Accesos útiles desde fuera (opcional)
     @property
@@ -139,5 +172,7 @@ class ToolbarManager:
             "mode_centroid": self.act_mode_centroid,
             "mode_template": self.act_mode_template,
             "clone_centroids": self.act_clone_centroids,
+            "tpl_create": self.act_tpl_create,
+            "tpl_apply_all": self.act_tpl_apply_all,
+            "tpl_apply_sel": self.act_tpl_apply_sel,
         }
-

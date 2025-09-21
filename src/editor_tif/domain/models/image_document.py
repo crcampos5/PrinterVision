@@ -1,104 +1,167 @@
-"""Image document model handling the current image state."""
+"""Image document model: reference (px), physical scale (mm/px), detections (px), tile and output."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
-from editor_tif.domain.services.detection import Centroid, detect_centroids, draw_centroids_overlay
+
+# Detecciones en píxeles (Reference Pixel Space)
+from editor_tif.domain.models.contours import Contour, Centroid
+# Servicio de detección (OpenCV)
+from editor_tif.infrastructure.contour_detector import ContourDetector
+# Colocación rápida por centroides en raster
 from editor_tif.domain.services.placement import place_tile_on_centroids
+# I/O de imágenes con metadatos
 from editor_tif.infrastructure.tif_io import load_image_data, save_image_tif
+# Capas para el viewer (edición)
 from editor_tif.presentation.views.scene_items import Layer
 
 
 # ------------------------- helpers internos -------------------------
-def _centroid_xy(c) -> Tuple[float, float]:
-    """Devuelve (x, y) desde un dataclass Centroid o una tupla/lista."""
+def _ensure_uint8(img: np.ndarray) -> np.ndarray:
+    if img.dtype == np.uint8:
+        return img
+    a = img.astype(np.float32)
+    a = a - a.min()
+    m = a.max() if a.max() else 1.0
+    return (a / m * 255.0).clip(0, 255).astype(np.uint8)
+
+
+def _centroid_xy(c: Centroid | Tuple[float, float]) -> Tuple[float, float]:
     if hasattr(c, "x") and hasattr(c, "y"):
         return float(c.x), float(c.y)
     return float(c[0]), float(c[1])
 
 
+# ============================= DOCUMENTO =============================
+@dataclass
 class ImageDocument:
-    """Encapsula datos de imagen + metadatos y productos derivados."""
+    """
+    Fuente de verdad:
+      - Referencia original (np.ndarray) y mm/px del workspace.
+      - Detecciones SOLO en píxeles de la referencia (centroids_px, contours_px).
+      - Tile (TIF) con metadatos físicos (mm).
+      - Capas editables y/o salida raster compuesta.
+    """
 
-    def __init__(self, min_area: int = 50, workspace_width_mm: float = 480.0, workspace_height_mm: float = 600.0) -> None:
-        # Capas editables en escena
-        self.layers: list[Layer] = []
-        self._layer_seq: int = 0
+    # Workspace físico (mm)
+    workspace_width_mm: float = 480.0
+    workspace_height_mm: float = 600.0
 
-        # Workspace (físico) y detección
-        self.min_area = min_area
-        self.workspace_width_mm = workspace_width_mm
-        self.workspace_height_mm = workspace_height_mm
+    # Umbral de detección
+    min_area: float = 50.0
 
-        # Metadatos del tile
-        self.tile_photometric: Optional[str] = None
-        self.tile_cmyk_order: Optional[Tuple[int, int, int, int]] = None
-        self.tile_alpha_index: Optional[int] = None
-        self.tile_icc_profile: Optional[bytes] = None
-        self.tile_ink_names: Optional[list[str]] = None
+    # ---------------- Estado de edición / capas ----------------
+    layers: list[Layer] = field(default_factory=list)
+    _layer_seq: int = 0
 
-        # Referencia y resultados de detección
-        self.reference_path: Optional[Path] = None
-        self.reference_image: Optional[np.ndarray] = None
-        self.reference_overlay: Optional[np.ndarray] = None
-        self.centroids: List[Centroid] = []
+    # ---------------- Referencia / detecciones -----------------
+    reference_path: Optional[Path] = None
+    _reference_np: Optional[np.ndarray] = None
+    reference_overlay: Optional[np.ndarray] = None  # solo para preview
 
-        # Tile y dimensiones físicas
-        self.tile_path: Optional[Path] = None
-        self.tile_image: Optional[np.ndarray] = None
-        self.tile_mm_width: Optional[float] = None
-        self.tile_mm_height: Optional[float] = None
+    # Detecciones en píxeles (Reference Pixel Space)
+    contours_px: List[Contour] = field(default_factory=list)
+    centroids_px: List[Centroid] = field(default_factory=list)
 
-        # Resultado compuesto
-        self.output_image: Optional[np.ndarray] = None
+    # ---------------- Tile y metadatos físicos -----------------
+    tile_path: Optional[Path] = None
+    tile_image: Optional[np.ndarray] = None
+    tile_mm_width: Optional[float] = None
+    tile_mm_height: Optional[float] = None
 
-        # Cache de mm/px de la referencia (workspace / tamaño ref)
-        self.mm_per_pixel_x: Optional[float] = None
-        self.mm_per_pixel_y: Optional[float] = None
+    tile_photometric: Optional[str] = None
+    tile_cmyk_order: Optional[Tuple[int, int, int, int]] = None
+    tile_alpha_index: Optional[int] = None
+    tile_icc_profile: Optional[bytes] = None
+    tile_ink_names: Optional[list[str]] = None
 
-    # ------------------------- propiedades -------------------------
+    # ---------------- Salida compuesta -------------------------
+    output_image: Optional[np.ndarray] = None
+
+    # ---------------- Escala física de la referencia -----------
+    mm_per_pixel_x: Optional[float] = None
+    mm_per_pixel_y: Optional[float] = None
+
+    # ============================ PROPIEDADES ============================
     @property
     def has_reference(self) -> bool:
-        return self.reference_image is not None
+        return self._reference_np is not None
 
     @property
     def has_output(self) -> bool:
         return self.output_image is not None
 
-    # ------------------------- carga referencia/tile -------------------------
-    def load_reference(self, path: Path) -> bool:
-        """Carga referencia JPG y detecta centroides."""
+    # ======================== CARGA / DETECCIÓN ==========================
+    def load_reference(self, path: Path, *, detector: ContourDetector | None = None) -> bool:
+        """
+        Carga la imagen de referencia (JPG/PNG/TIF) y (opcionalmente) corre
+        detección de contornos/centroides. Detecciones se guardan en PX.
+        """
         data = load_image_data(path)
-        if data is None:
-            return False
-
-        image = data.pixels
-        _, centroids = detect_centroids(image, self.min_area)
-        if not centroids:
+        if data is None or data.pixels is None or data.pixels.size == 0:
             return False
 
         self.reference_path = path
-        self.reference_image = image
-        self.centroids = centroids
-        self.reference_overlay = draw_centroids_overlay(image, centroids)
+        self._reference_np = data.pixels
+        self._recompute_mm_per_pixel()
 
-        # reset de tile/result
+        # Si se provee o construye detector → popular detecciones en px
+        if detector is None:
+            detector = ContourDetector(min_area=self.min_area)
+
+        if self._reference_np is not None:
+            try:
+                contours, centroids = detector.detect(self._reference_np)
+            except Exception:
+                contours, centroids = [], []
+            self.contours_px = list(contours)
+            self.centroids_px = list(centroids)
+            self.reference_overlay = self._build_overlay(self._reference_np, self.contours_px, self.centroids_px)
+        else:
+            self.contours_px = []
+            self.centroids_px = []
+            self.reference_overlay = None
+
+        # Reset de tile / salida (nueva referencia invalida anteriores)
         self.tile_path = None
         self.tile_image = None
         self.tile_mm_width = None
         self.tile_mm_height = None
+        self.tile_photometric = None
+        self.tile_cmyk_order = None
+        self.tile_alpha_index = None
+        self.tile_icc_profile = None
+        self.tile_ink_names = None
         self.output_image = None
 
-        self._recompute_mm_per_pixel()
         return True
 
+    def detect_with(self, detector: ContourDetector) -> bool:
+        """Permite refrescar detecciones en PX con un detector externo."""
+        if self._reference_np is None:
+            return False
+        try:
+            contours, centroids = detector.detect(self._reference_np)
+        except Exception:
+            return False
+
+        self.contours_px = list(contours or [])
+        self.centroids_px = list(centroids or [])
+        self.reference_overlay = self._build_overlay(self._reference_np, self.contours_px, self.centroids_px)
+        return bool(self.contours_px or self.centroids_px)
+
+    # ========================= TILE / RESULTADO ===========================
     def load_tile(self, path: Path) -> bool:
-        """Carga un TIF (tile) preservando dimensiones físicas si existen y genera compuesto."""
-        if self.reference_image is None or not self.centroids:
+        """
+        Carga un TIF (tile) preservando dimensiones físicas si existen.
+        El compuesto rápido usa el tile tal cual (sin remuestrear).
+        """
+        if self._reference_np is None or (not self.centroids_px and not self.contours_px):
             return False
 
         data = load_image_data(path)
@@ -115,32 +178,36 @@ class ImageDocument:
         self.tile_icc_profile = getattr(data, "icc_profile", None)
         self.tile_ink_names = getattr(data, "ink_names", None)
 
-        # Fallback físico si falta metadata: infiere con mm/px de la referencia
-        if self.tile_mm_width is None and self.mm_per_pixel_x is not None:
+        # Fallback físico si falta metadata: inferir con mm/px de la referencia
+        if self.tile_mm_width is None and self.mm_per_pixel_x is not None and self.tile_image is not None:
             self.tile_mm_width = self.tile_image.shape[1] * self.mm_per_pixel_x
-        if self.tile_mm_height is None and self.mm_per_pixel_y is not None:
+        if self.tile_mm_height is None and self.mm_per_pixel_y is not None and self.tile_image is not None:
             self.tile_mm_height = self.tile_image.shape[0] * self.mm_per_pixel_y
 
         return self._generate_output()
 
     def rebuild_output(self) -> bool:
-        """Recalcula el resultado con los ajustes actuales."""
+        """Recalcula el resultado actual con las configuraciones vigentes."""
         return self._generate_output()
 
     def update_workspace(self, width_mm: float, height_mm: float) -> None:
         """Actualiza dimensiones físicas del workspace y regenera si procede."""
-        self.workspace_width_mm = width_mm
-        self.workspace_height_mm = height_mm
+        self.workspace_width_mm = float(width_mm)
+        self.workspace_height_mm = float(height_mm)
         self._recompute_mm_per_pixel()
         if self.tile_image is not None:
             self._generate_output()
 
-    # ------------------------- getters -------------------------
+    # =============================== GETTERS ================================
     def get_reference_preview(self) -> Optional[np.ndarray]:
+        """Devuelve la referencia con overlay (si existe). Para UI; no posiciona."""
         return self.reference_overlay
 
     def get_output_preview(self) -> Optional[np.ndarray]:
         return self.output_image
+
+    def get_reference_image_np(self) -> Optional[np.ndarray]:
+        return self._reference_np
 
     def get_mm_per_pixel(self) -> Optional[Tuple[float, float]]:
         if self.mm_per_pixel_x is None or self.mm_per_pixel_y is None:
@@ -152,9 +219,11 @@ class ImageDocument:
             return None
         return self.tile_mm_width, self.tile_mm_height
 
-    # ------------------------- guardado -------------------------
+    # =============================== GUARDADO ===============================
     def save_output(self, path: Path) -> bool:
-        """Guarda el resultado (rasterizando capas si existen) con metadatos del tile."""
+        """
+        Guarda el resultado (rasterizando capas si existen) con metadatos del tile.
+        """
         if self.layers:
             img = self.rasterize_layers()
         else:
@@ -181,7 +250,6 @@ class ImageDocument:
         else:
             photometric = None
 
-        # Metadatos heredados del tile
         icc = getattr(self, "tile_icc_profile", None)
         ink_names = getattr(self, "tile_ink_names", None)
 
@@ -192,14 +260,11 @@ class ImageDocument:
 
         channels = img.shape[2] if (img.ndim == 3) else 1
         if photometric == "separated":
-            # Si el tile traía alfa y sigue estando al final -> marcar ExtraSamples=ALPHA
             if self.tile_alpha_index is not None and channels == (self.tile_alpha_index + 1):
                 extrasamples = [2]  # 2 = Unassociated Alpha
                 if ink_names:
-                    # No contar el alfa como tinta nombrada
                     ink_names = [n for i, n in enumerate(ink_names) if i != self.tile_alpha_index]
             else:
-                # No hay alfa: si coinciden nombres con canales, declara número de tintas
                 if ink_names and len(ink_names) == channels:
                     number_of_inks = channels
                     inkset = 1  # CMYK base
@@ -217,20 +282,21 @@ class ImageDocument:
             inkset=inkset,
         )
 
-    # ------------------------- internos -------------------------
+    # =============================== INTERNOS ===============================
     def _recompute_mm_per_pixel(self) -> None:
-        if self.reference_image is None:
+        """mm/px de la referencia en función del workspace actual."""
+        if self._reference_np is None:
             self.mm_per_pixel_x = None
             self.mm_per_pixel_y = None
             return
-        h_px, w_px = self.reference_image.shape[:2]
-        self.mm_per_pixel_x = self.workspace_width_mm / w_px if w_px else None
-        self.mm_per_pixel_y = self.workspace_height_mm / h_px if h_px else None
+        h_px, w_px = self._reference_np.shape[:2]
+        self.mm_per_pixel_x = (self.workspace_width_mm / w_px) if w_px else None
+        self.mm_per_pixel_y = (self.workspace_height_mm / h_px) if h_px else None
 
     def _target_mm_per_px(self) -> Tuple[Optional[float], Optional[float]]:
         """
-        mm/px objetivo del canvas (modo tile fijo).
-        Si el TIF trae dimensiones físicas, úsalo; si no, cae a mm/px de la referencia.
+        mm/px objetivo del canvas (tile fijo). Usa dimensiones físicas del tile si existen,
+        o cae a la escala de la referencia.
         """
         if self.tile_image is None:
             return None, None
@@ -240,10 +306,7 @@ class ImageDocument:
         return mmpp_x, mmpp_y
 
     def _blank_canvas(self) -> np.ndarray:
-        """
-        Crea un lienzo blanco cuyo tamaño (px) representa el workspace físico
-        a la resolución (mm/px) derivada del TILE (sin remuestrear el tile).
-        """
+        """Canvas blanco del tamaño físico del workspace a la resolución objetivo."""
         if self.tile_image is None:
             raise RuntimeError("Tile image required")
 
@@ -254,14 +317,12 @@ class ImageDocument:
         width_px = max(1, int(round(self.workspace_width_mm / mmpp_x)))
         height_px = max(1, int(round(self.workspace_height_mm / mmpp_y)))
 
-        # Heredar dtype/canales del TILE
         dtype = self.tile_image.dtype
         channels = self.tile_image.shape[2] if self.tile_image.ndim == 3 else 1
 
         is_int = np.issubdtype(dtype, np.integer)
         maxv = np.iinfo(dtype).max if is_int else 1.0
 
-        # Blanco lógico: CMYK (separated/cmyk) = 0; RGB/GRAY = max
         tile_ph = (self.tile_photometric or "").lower()
         white_val = 0 if tile_ph in ("separated", "cmyk") else maxv
 
@@ -270,17 +331,17 @@ class ImageDocument:
         return np.full((height_px, width_px, channels), white_val, dtype=dtype)
 
     def _scaled_tile(self) -> Optional[np.ndarray]:
-        """En modo tile fijo, devuelve el tile sin redimensionar (placeholder para futuro)."""
+        """Modo tile fijo: no remuestrea el tile (placeholder para futuro)."""
         return self.tile_image if self.tile_image is not None else None
 
     def _generate_output(self) -> bool:
         """
-        Genera el compuesto (tile fijo):
-        - Canvas a la resolución física del tile.
-        - Reescala centroides desde px de referencia → px de canvas.
-        - NO remuestrea el tile; se usa tal cual.
+        Compuesto rápido (tile fijo):
+          - Canvas a la resolución física objetivo (tile).
+          - Traslada centroides PX_ref → PX_canvas usando mm/px.
+          - Usa el tile tal cual (sin resize).
         """
-        if self.reference_image is None or self.tile_image is None or not self.centroids:
+        if self._reference_np is None or self.tile_image is None or not self.centroids_px:
             return False
         if self.mm_per_pixel_x is None or self.mm_per_pixel_y is None:
             return False
@@ -289,23 +350,22 @@ class ImageDocument:
         if mmpp_x_target is None or mmpp_y_target is None:
             return False
 
-        # Escala de traslado: px_ref -> px_canvas
+        # Factor px_ref → px_canvas
         sx = self.mm_per_pixel_x / mmpp_x_target
         sy = self.mm_per_pixel_y / mmpp_y_target
 
-        # Centroides reescalados y redondeados (coherentes con píxel)
+        # Centroides reescalados (enteros para raster)
         scaled_centroids: list[Tuple[int, int]] = []
-        for c in self.centroids:
+        for c in self.centroids_px:
             x, y = _centroid_xy(c)
             scaled_centroids.append((int(round(x * sx)), int(round(y * sy))))
 
         canvas = self._blank_canvas()
-        tile = self.tile_image  # sin resize
-
+        tile = self.tile_image  # sin remuestrear
         self.output_image = place_tile_on_centroids(canvas, tile, scaled_centroids)
         return True
 
-    # ------------------------- capas (viewer) -------------------------
+    # ============================== CAPAS (VIEWER) ============================
     def add_layer_from_tile(self) -> Layer | None:
         """Crea una Layer desde el TIF cargado (tile_image) y la devuelve."""
         if self.tile_image is None:
@@ -339,9 +399,9 @@ class ImageDocument:
     def rasterize_layers(self) -> np.ndarray:
         """
         Compone todas las capas en un canvas blanco (usa photometric del TIF si hay).
-        Reglas simples: warp affine (nearest) + copy de valores > 0.
+        Regla simple: warp affine (nearest) + copy > 0.
         """
-        if self.tile_image is None and self.reference_image is None:
+        if self.tile_image is None and self._reference_np is None:
             raise RuntimeError("No hay referencia ni tile para deducir resolución")
 
         mmpp_x, mmpp_y = self._target_mm_per_px()
@@ -382,3 +442,39 @@ class ImageDocument:
 
         self.output_image = canvas
         return canvas
+
+    # ========================= OVERLAY (opcional/UI) =========================
+    def _build_overlay(
+        self,
+        ref: np.ndarray,
+        contours: List[Contour],
+        centroids: List[Centroid],
+    ) -> np.ndarray:
+        """
+        Dibuja centroides (verde) y contornos (rojo) sobre la referencia para preview.
+        Esto NO se usa para posicionar ítems en escena.
+        """
+        base = _ensure_uint8(ref)
+        if base.ndim == 2:
+            vis = cv2.cvtColor(base, cv2.COLOR_GRAY2BGR)
+        elif base.shape[2] >= 3:
+            vis = base[..., :3].copy()
+        else:
+            vis = base.copy()
+
+    #    # Contornos en rojo
+    #    for ct in contours:
+    #        if ct.polygon and len(ct.polygon) >= 3:
+    #            pts = np.array(ct.polygon, dtype=np.int32).reshape(-1, 1, 2)
+    #            #cv2.polylines(vis, [pts], isClosed=True, color=(0, 0, 255), thickness=1, lineType=cv2.LINE_AA)
+    #        else:
+    #            rect = ((ct.cx, ct.cy), (ct.width, ct.height), ct.angle_deg)
+    #            box = cv2.boxPoints(rect).astype(np.int32)
+    #            #cv2.polylines(vis, [box], isClosed=True, color=(0, 0, 255), thickness=1, lineType=cv2.LINE_AA)
+#
+    #    # Centroides en verde
+    #    for c in centroids:
+    #        x, y = _centroid_xy(c)
+    #        #cv2.circle(vis, (int(round(x)), int(round(y))), 3, (0, 255, 0), -1, lineType=cv2.LINE_AA)
+
+        return vis
