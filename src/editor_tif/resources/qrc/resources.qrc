@@ -1,1 +1,12 @@
-<!DOCTYPE RCC><RCC version="1.0"><qresource prefix="/"></qresource></RCC>
+<RCC>
+  <qresource prefix="/icons">
+    <file>../icons/settings.svg</file>
+    <file>../icons/open.svg</file>
+    <file>../icons/save.svg</file>
+    <file>../icons/add-image.svg</file>
+    <file>../icons/target.svg</file>
+    <file>../icons/template.svg</file>
+    <file>../icons/clone.svg</file>
+  </qresource>
+</RCC>
+

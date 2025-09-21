@@ -42,28 +42,51 @@ def _to_preview_rgb8(arr: np.ndarray, photometric_hint: Optional[str] = None,
         return np.stack([g, g, g], axis=-1)
 
     ch = a.shape[2]
+
+    # ¿Hay alfa?
+    has_alpha = alpha_index is not None and 0 <= alpha_index < ch
+    # Caso típico RGBA "puro"
+    if (photometric_hint or "").lower() == "rgba" and ch >= 4:
+        # Devuelve RGBA tal cual (asegura contigüidad más adelante)
+        return a[..., :4]
+
     if ch == 1:
         g = a[..., 0]
         return np.stack([g, g, g], axis=-1)
 
-    if ch == 3:
+    if ch == 3 and not has_alpha:
         # RGB directo
         return a
 
-    # 4+ canales
-    if photometric_hint == "rgba":
-        return _rgba_over_white_to_rgb8(a)
+    # 4+ canales: CMYK (+extras) u otros
+    if (photometric_hint or "").lower() in ("separated", "cmyk") and ch >= 4:
+        # CMYK -> RGB
+        if cmyk_order is None:
+            cmyk_order = (0, 1, 2, 3)
+        rgb = _cmyk_to_rgb8_from_order(a, cmyk_order)
+        if has_alpha:
+            alpha = a[..., alpha_index]
+            rgba = np.concatenate([rgb, alpha[..., None]], axis=-1)
+            return rgba
+        return rgb
 
-    # Por defecto tratamos 'separated'/'cmyk'/None como CMYK (+ posibles extras)
-    if cmyk_order is None:
-        cmyk_order = (0, 1, 2, 3)  # fallback si no hay InkNames
-    rgb = _cmyk_to_rgb8_from_order(a, cmyk_order)
+    # Otras combinaciones con alfa (p.ej. RGB+A etiquetado como None)
+    if has_alpha:
+        alpha = a[..., alpha_index]
+        # Si hay >=3 canales antes del alfa, tómalo como RGB; si no, duplica gris
+        if ch >= 4:
+            rgb = a[..., :3]
+        elif ch == 2:
+            g = a[..., 0]
+            rgb = np.stack([g, g, g], axis=-1)
+        else:
+            # Fallback
+            rgb = a[..., :3]
+        rgba = np.concatenate([rgb, alpha[..., None]], axis=-1)
+        return rgba
 
-    # Si hay alfa (extrasample), componemos sobre blanco solo para preview
-    if alpha_index is not None and 0 <= alpha_index < ch:
-        alpha = a[..., alpha_index].astype(np.float32) / 255.0
-        rgb = (rgb.astype(np.float32) * alpha[..., None] + 255.0 * (1.0 - alpha[..., None])).astype(np.uint8)
-    return rgb
+    # Fallback general: primeros 3 canales
+    return a[..., :3]
 
 def numpy_to_qimage(array: np.ndarray) -> QImage:
     """Convierte un numpy YA normalizado a RGB8/GRAY8/RGBA8 en QImage."""

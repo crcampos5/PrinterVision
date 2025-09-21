@@ -94,6 +94,7 @@ def load_image_data(path: Path) -> Optional[ImageData]:
                 # Ink names/orden de tintas (para separar CMYK y spot)
                 inknames_tag = tags.get("InkNames")
                 cmyk_order = None
+                ink_names = None
                 if photometric == "separated":
                     # Intentar derivar orden real de canales a partir de InkNames
                     # InkNames viene como bytes separados por \x00 en TIFF
@@ -106,6 +107,7 @@ def load_image_data(path: Path) -> Optional[ImageData]:
                             names = [n for n in raw.split("\x00") if n]
                     # Buscar C,M,Y,K en el orden correcto
                     if names:
+                        ink_names = names
                         def idx_of(tgt):
                             for i, n in enumerate(names):
                                 nn = n.strip().lower()
