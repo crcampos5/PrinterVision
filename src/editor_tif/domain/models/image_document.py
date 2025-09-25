@@ -155,40 +155,6 @@ class ImageDocument:
         self.reference_overlay = self._build_overlay(self._reference_np, self.contours_px, self.centroids_px)
         return bool(self.contours_px or self.centroids_px)
 
-    # ========================= TILE / RESULTADO ===========================
-    def load_tile(self, path: Path) -> bool:
-        """
-        Carga un TIF (tile) preservando dimensiones físicas si existen.
-        El compuesto rápido usa el tile tal cual (sin remuestrear).
-        """
-        if self._reference_np is None or (not self.centroids_px and not self.contours_px):
-            return False
-
-        data = load_image_data(path)
-        if data is None:
-            return False
-
-        self.tile_path = path
-        self.tile_image = data.pixels
-        self.tile_mm_width = data.width_mm
-        self.tile_mm_height = data.height_mm
-        self.tile_photometric = data.photometric
-        self.tile_cmyk_order = data.cmyk_order
-        self.tile_alpha_index = data.alpha_index
-        self.tile_icc_profile = getattr(data, "icc_profile", None)
-        self.tile_ink_names = getattr(data, "ink_names", None)
-
-        # Fallback físico si falta metadata: inferir con mm/px de la referencia
-        if self.tile_mm_width is None and self.mm_per_pixel_x is not None and self.tile_image is not None:
-            self.tile_mm_width = self.tile_image.shape[1] * self.mm_per_pixel_x
-        if self.tile_mm_height is None and self.mm_per_pixel_y is not None and self.tile_image is not None:
-            self.tile_mm_height = self.tile_image.shape[0] * self.mm_per_pixel_y
-
-        return self._generate_output()
-
-    def rebuild_output(self) -> bool:
-        """Recalcula el resultado actual con las configuraciones vigentes."""
-        return self._generate_output()
 
     def update_workspace(self, width_mm: float, height_mm: float) -> None:
         """Actualiza dimensiones físicas del workspace y regenera si procede."""
@@ -239,6 +205,8 @@ class ImageDocument:
             mmpp_y = self.mm_per_pixel_y
         dpi_x = (25.4 / mmpp_x) if mmpp_x else None
         dpi_y = (25.4 / mmpp_y) if mmpp_y else None
+
+       
 
         # Photometric por canales
         if img.ndim == 2 or (img.ndim == 3 and img.shape[2] == 1):
@@ -299,6 +267,7 @@ class ImageDocument:
         o cae a la escala de la referencia.
         """
         if self.tile_image is None:
+            print("es none")
             return None, None
         h, w = self.tile_image.shape[:2]
         mmpp_x = (self.tile_mm_width / float(w)) if (self.tile_mm_width and w) else self.mm_per_pixel_x
@@ -324,7 +293,8 @@ class ImageDocument:
         maxv = np.iinfo(dtype).max if is_int else 1.0
 
         tile_ph = (self.tile_photometric or "").lower()
-        white_val = 0 if tile_ph in ("separated", "cmyk") else maxv
+        #white_val = 0 if tile_ph in ("separated", "cmyk") else maxv
+        white_val = maxv
 
         if channels == 1:
             return np.full((height_px, width_px), white_val, dtype=dtype)
@@ -398,50 +368,131 @@ class ImageDocument:
 
     def rasterize_layers(self) -> np.ndarray:
         """
-        Compone todas las capas en un canvas blanco (usa photometric del TIF si hay).
-        Regla simple: warp affine (nearest) + copy > 0.
+        Compone capas sobre canvas blanco (white=0), centrando cada layer en (layer.x, layer.y).
+        - Independiente de tile_*.
+        - Respeta width_mm/height_mm -> escala física.
+        - Warp affine expandido (sin recortes por rotación/escala).
+        - Alpha opcional como máscara (>0); sin alpha: copia donde ≠ white.
         """
-        if self.tile_image is None and self._reference_np is None:
-            raise RuntimeError("No hay referencia ni tile para deducir resolución")
+        if self._reference_np is None and not self.layers:
+            raise RuntimeError("No hay referencia ni capas para deducir resolución")
 
-        mmpp_x, mmpp_y = self._target_mm_per_px()
+        # mm/px del canvas desde la referencia/workspace
+        mmpp_x, mmpp_y = self.mm_per_pixel_x, self.mm_per_pixel_y
         if mmpp_x is None or mmpp_y is None:
-            mmpp_x, mmpp_y = self.mm_per_pixel_x, self.mm_per_pixel_y
-        if mmpp_x is None or mmpp_y is None:
-            raise RuntimeError("No se pudo determinar mm/px")
+            raise RuntimeError("No se pudo determinar mm/px desde la referencia/workspace")
 
-        width_px = max(1, int(round(self.workspace_width_mm / mmpp_x)))
+        width_px  = max(1, int(round(self.workspace_width_mm  / mmpp_x)))
         height_px = max(1, int(round(self.workspace_height_mm / mmpp_y)))
 
-        # Deducción base de dtype/canales
-        dtype = self.layers[0].pixels.dtype if self.layers else np.uint8
-        channels = self.layers[0].pixels.shape[2] if (self.layers and self.layers[0].pixels.ndim == 3) else 3
-        ph = (self.tile_photometric or "").lower()
-        white = 0 if ph in ("separated", "cmyk") else (np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1.0)
+        # Canvas: dtype/canales de la primera capa
+        base = self.layers[0].pixels
+        dtype = base.dtype
+        channels = (base.shape[2] if base.ndim == 3 else 1)
 
+        white = 0  # en tu pipeline, "blanco" es 0
         canvas = (np.full((height_px, width_px, channels), white, dtype=dtype)
-                  if channels > 1 else np.full((height_px, width_px), white, dtype=dtype))
+                if channels > 1 else np.full((height_px, width_px), white, dtype=dtype))
 
         for layer in self.layers:
             img = layer.pixels
-            M = cv2.getRotationMatrix2D((img.shape[1] / 2, img.shape[0] / 2), layer.rotation, layer.scale)
-            warped = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_NEAREST, borderValue=white)
+            # Normaliza a (H,W,C)
+            if img.ndim == 2:
+                img = img[..., np.newaxis]
 
-            x0 = int(round(layer.x)); y0 = int(round(layer.y))
-            x1 = min(x0 + warped.shape[1], canvas.shape[1]); y1 = min(y0 + warped.shape[0], canvas.shape[0])
-            if x1 <= 0 or y1 <= 0:
+            # Ajusta canales para compatibilidad con canvas (permitimos 1 canal extra como alpha)
+            ch = img.shape[2]
+            if ch < channels:
+                img = np.concatenate([img, np.repeat(img[..., -1:], channels - ch, axis=2)], axis=2)
+                ch = channels
+            if ch > channels + 1:
+                img = img[..., :channels + 1]
+                ch = img.shape[2]
+
+            h, w = img.shape[:2]
+
+            # Escala física: mm -> px del canvas
+            s_phys = 1.0
+            if self.mm_per_pixel_x and self.mm_per_pixel_y:
+                if getattr(layer, "width_mm", None):
+                    target_w_px = float(layer.width_mm) / float(mmpp_x)
+                    s_phys = target_w_px / float(w)
+                elif getattr(layer, "height_mm", None):
+                    target_h_px = float(layer.height_mm) / float(mmpp_y)
+                    s_phys = target_h_px / float(h)
+
+            eff_scale = float(layer.scale) * float(s_phys)
+
+            # Rotación + escala alrededor del centro, con expansión de tamaño para no recortar
+            cx, cy = (w / 2.0, h / 2.0)
+            print("rotacion: ", layer.rotation)
+            M = cv2.getRotationMatrix2D((cx, cy), layer.rotation, eff_scale)
+
+            # Calcular tamaño expandido
+            cos = abs(M[0, 0]); sin = abs(M[0, 1])
+            new_w = int(round((h * sin) + (w * cos)))
+            new_h = int(round((h * cos) + (w * sin)))
+
+            # Ajustar traslación para centrar en el nuevo lienzo
+            M[0, 2] += (new_w / 2.0) - cx
+            M[1, 2] += (new_h / 2.0) - cy
+
+            # borderValue: escalar si hay >4 canales (limitación OpenCV)
+            if ch <= 4:
+                border_val = (white,) * ch
+            else:
+                border_val = white
+
+            warped = cv2.warpAffine(img, M, (new_w, new_h), flags=cv2.INTER_NEAREST, borderValue=border_val)
+
+            # Colocación centrada en (layer.x, layer.y)
+            x_px = layer.x / mmpp_x
+            y_px = layer.y / mmpp_y
+            x0 = int(round(x_px - new_w / 2.0))
+            y0 = int(round(y_px - new_h / 2.0))
+
+            # Recortes contra canvas
+            if x0 >= canvas.shape[1] or y0 >= canvas.shape[0] or (x0 + new_w <= 0) or (y0 + new_h <= 0):
                 continue
+
             xs = max(0, -x0); ys = max(0, -y0)
             x0 = max(0, x0); y0 = max(0, y0)
-            tile_slice = warped[ys:y1 - y0 + ys, xs:x1 - x0 + xs]
+            x1 = min(x0 + new_w - xs, canvas.shape[1])
+            y1 = min(y0 + new_h - ys, canvas.shape[0])
+            if x1 <= x0 or y1 <= y0:
+                continue
 
+            tile_slice = warped[ys:ys + (y1 - y0), xs:xs + (x1 - x0)]
             region = canvas[y0:y1, x0:x1]
-            mask = tile_slice > 0
-            region[mask] = tile_slice[mask]
+
+            # Máscara: alpha extra si canales = canvas+1, si no ≠ white
+            has_extra_alpha = (tile_slice.ndim == 3 and tile_slice.shape[2] == (channels + 1))
+            if has_extra_alpha:
+                alpha = tile_slice[..., -1]
+                color = tile_slice[..., :channels]
+                mask = (alpha > 0)
+                region[mask] = color[mask]
+            else:
+                if tile_slice.ndim == 3:
+                    # Ajuste de canales por seguridad
+                    if tile_slice.shape[2] > channels:
+                        tile_slice = tile_slice[..., :channels]
+                    elif tile_slice.shape[2] < channels:
+                        tile_slice = np.concatenate(
+                            [tile_slice, np.repeat(tile_slice[..., -1:], channels - tile_slice.shape[2], axis=2)], axis=2
+                        )
+                    mask = np.any(tile_slice != white, axis=2)
+                    region[mask] = tile_slice[mask]
+                else:
+                    mask = (tile_slice != white)
+                    region[mask] = tile_slice[mask]
+
             canvas[y0:y1, x0:x1] = region
 
         self.output_image = canvas
         return canvas
+
+
 
     # ========================= OVERLAY (opcional/UI) =========================
     def _build_overlay(
@@ -461,20 +512,5 @@ class ImageDocument:
             vis = base[..., :3].copy()
         else:
             vis = base.copy()
-
-    #    # Contornos en rojo
-    #    for ct in contours:
-    #        if ct.polygon and len(ct.polygon) >= 3:
-    #            pts = np.array(ct.polygon, dtype=np.int32).reshape(-1, 1, 2)
-    #            #cv2.polylines(vis, [pts], isClosed=True, color=(0, 0, 255), thickness=1, lineType=cv2.LINE_AA)
-    #        else:
-    #            rect = ((ct.cx, ct.cy), (ct.width, ct.height), ct.angle_deg)
-    #            box = cv2.boxPoints(rect).astype(np.int32)
-    #            #cv2.polylines(vis, [box], isClosed=True, color=(0, 0, 255), thickness=1, lineType=cv2.LINE_AA)
-#
-    #    # Centroides en verde
-    #    for c in centroids:
-    #        x, y = _centroid_xy(c)
-    #        #cv2.circle(vis, (int(round(x)), int(round(y))), 3, (0, 255, 0), -1, lineType=cv2.LINE_AA)
 
         return vis

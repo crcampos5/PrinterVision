@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Iterable
 
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtWidgets import (
@@ -13,10 +13,10 @@ from editor_tif.domain.models.image_document import ImageDocument
 from editor_tif.infrastructure.qt_image import numpy_to_qpixmap
 from editor_tif.infrastructure.tif_io import load_image_data
 from editor_tif.presentation.views.scene_items import ImageItem, Layer, CentroidItem, ContourItem
+from editor_tif.presentation.views.template_items import TemplateGroupItem  # nuevo grupo rígido
 from editor_tif.presentation.views.workspace_dialog import WorkspaceDialog
 from editor_tif.presentation.modes import EditorMode
 from editor_tif.domain.services.placement import clone_item_to_centroids
-from editor_tif.domain.models.template import ContourSignature
 from editor_tif.features.template_controller import TemplateController
 
 # Undo/redo & clipboard
@@ -30,14 +30,14 @@ class MainActions:
     """
     Lógica desacoplada de MainWindow:
     - Administra fondo (pixmap) y su transform físico.
-    - Materializa centroides mapeando desde píxeles de referencia a escena.
-    - Delegados para abrir/guardar, clonar y plantillas.
+    - Materializa centroides/contornos mapeando desde px de referencia a escena.
+    - Delegados para abrir/guardar, clonar y plantillas (grupos rígidos).
     """
 
     def __init__(
         self,
         *,
-        window,                             # referencia a MainWindow (statusBar, viewer)
+        window,                             # MainWindow (statusBar, viewer)
         scene: QGraphicsScene,
         document: ImageDocument,
         mm_to_scene: float,
@@ -54,10 +54,13 @@ class MainActions:
         self.selection_handler = selection_handler
         self.undo_stack = undo_stack
         self.toolbar_manager = toolbar_manager
-        
-        self._contour_items = []  # track de ContourItem para visibilidad/limpieza
-        # Fondo de referencia anclado a escena
+
+        self._contour_items: list[ContourItem] = []  # track para visibilidad/limpieza
         self._bg_item: Optional[QGraphicsPixmapItem] = None
+        self._mode: EditorMode = EditorMode.CloneByCentroid
+
+        # Mantiene referencia al último Template lógico creado (para aplicar)
+        self._last_template = None
 
     # ==================== Workspace / Referencia / Guardado ====================
 
@@ -173,22 +176,20 @@ class MainActions:
 
     def set_mode(self, mode: EditorMode) -> None:
         self._mode = mode
+        # Sincroniza toolbar y selection handler
         self.toolbar_manager.update_mode(mode)
         self.selection_handler.update_mode(mode)
 
         if mode == EditorMode.Template:
-            # asegurar contornos dibujados y visibles
             self._populate_contours_items()
             self._set_contours_visible(True)
-            # ocultar centroides
             self._set_centroids_visible(False)
         else:
-            # modo CloneByCentroid
-            # asegurar centroides (por si no se había llamado _refresh_view)
             self._populate_centroids_items()
             self._set_centroids_visible(True)
-            # ocultar contornos
             self._set_contours_visible(False)
+
+        self._update_actions_state()
 
     def on_clone_centroids(self) -> None:
         sel = self.scene.selectedItems()
@@ -212,24 +213,47 @@ class MainActions:
         self._update_actions_state()
 
     def on_create_template(self) -> None:
-        tpl = self.template_controller.create_template_from_selection(name="plantilla_1")
-        self.window.statusBar().showMessage(f"Plantilla creada: {tpl.id}")
+        """
+        Crea el grupo rígido (ImageItem + ContourItem) y registra la plantilla lógica.
+        Guarda la última plantilla para aplicar luego desde el toolbar.
+        """
+        try:
+            group, tpl = self.template_controller.create_group_from_selection(name="Plantilla 1")
+        except ValueError as e:
+            QMessageBox.information(self.window, "Selección insuficiente", str(e))
+            return
+
+        self._last_template = tpl
+        # Selección y enfoque ya los hace el controller; status informativo:
+        self.window.statusBar().showMessage("Plantilla creada y registrada en el panel.")
+        self._update_actions_state()
 
     def on_apply_template_all(self) -> None:
-        tpl = self.template_controller.find_template("plantilla_1")
-        if not tpl:
+        tpl = self._get_active_template()
+        if tpl is None:
             QMessageBox.information(self.window, "Sin plantilla", "Crea primero una plantilla.")
             return
-        created = self.template_controller.apply_template_to_all_centroids(tpl)
-        self.window.statusBar().showMessage(f"Aplicada a {len(created)} centroides.")
+        created = self.template_controller.apply_template_to_all_markers(tpl)
+        self.window.statusBar().showMessage(f"Plantilla aplicada a {len(created)} marcadores.")
+        self._update_actions_state()
 
     def on_apply_template_selected(self) -> None:
-        tpl = self.template_controller.find_template("plantilla_1")
-        if not tpl:
+        tpl = self._get_active_template()
+        if tpl is None:
             QMessageBox.information(self.window, "Sin plantilla", "Crea primero una plantilla.")
             return
         created = self.template_controller.apply_template_to_selection(tpl)
-        self.window.statusBar().showMessage(f"Aplicada a {len(created)} centroides seleccionados.")
+        self.window.statusBar().showMessage(f"Plantilla aplicada a {len(created)} marcadores seleccionados.")
+        self._update_actions_state()
+
+    def _get_active_template(self):
+        # Usa la última creada si existe; de lo contrario, intenta la primera registrada
+        if self._last_template is not None:
+            return self._last_template
+        names = self.template_controller.list_templates()
+        if not names:
+            return None
+        return self.template_controller.find_template(names[-1])
 
     # =============================== Clipboard ================================
 
@@ -300,7 +324,7 @@ class MainActions:
     def _refresh_view(self) -> None:
         """
         - Si hay output: muestra output y NO pinta centroides (pertenecen a la referencia).
-        - Si hay referencia: muestra overlay y PINTA centroides alineados con mapToScene.
+        - Si hay referencia: muestra overlay y PINTA centroides/contornos alineados con mapToScene.
         """
         if self.document.has_output:
             image = self.document.get_output_preview()
@@ -312,8 +336,8 @@ class MainActions:
                     alpha_index=getattr(self.document, "tile_alpha_index", None),
                 )
                 self._set_background_pixmap(pix)
-                # No centroides en la vista de output
                 self._clear_centroids_items()
+                self._clear_contours_items()
                 return
 
         image = self.document.get_reference_preview()
@@ -321,7 +345,7 @@ class MainActions:
             pix = numpy_to_qpixmap(image)
             self._set_background_pixmap(pix)
             self._populate_centroids_items()
-            if getattr(self, "_mode", None) == EditorMode.Template:
+            if self._mode == EditorMode.Template:
                 self._populate_contours_items()
                 self._set_contours_visible(True)
                 self._set_centroids_visible(False)
@@ -332,16 +356,14 @@ class MainActions:
             self._clear_centroids_items()
             self._clear_contours_items()
 
-    # ---------- Centroides (px → escena usando bg_item) ----------
+    # ---------- Centroides (px_ref → escena) ----------
     def _clear_centroids_items(self) -> None:
         for it in list(self.scene.items()):
             if isinstance(it, CentroidItem):
                 self.scene.removeItem(it)
 
     def _iterate_centroids_px(self):
-        """
-        Compat: primero busca centroids_px (nuevo doc); si no existe, cae a centroids (doc anterior).
-        """
+        # Compat: primero centroids_px; si no, centroids (modelo viejo)
         if hasattr(self.document, "centroids_px") and self.document.centroids_px:
             return self.document.centroids_px
         if hasattr(self.document, "centroids") and self.document.centroids:
@@ -349,17 +371,15 @@ class MainActions:
         return []
 
     def _populate_centroids_items(self) -> None:
-        """Materializa CentroidItem alineados al fondo (mapToScene sobre px de referencia)."""
+        """Crea CentroidItem alineados al fondo (mapToScene sobre px de referencia)."""
         self._clear_centroids_items()
-
         if self._bg_item is None:
             return
 
         for c in self._iterate_centroids_px():
             x = float(getattr(c, "x", c[0] if isinstance(c, (tuple, list)) else 0.0))
             y = float(getattr(c, "y", c[1] if isinstance(c, (tuple, list)) else 0.0))
-
-            p_scene = self._bg_item.mapToScene(QPointF(x, y))  # <— clave: alineación perfecta con el fondo
+            p_scene = self._bg_item.mapToScene(QPointF(x, y))
             dot = CentroidItem(radius_px=6.0)
             dot.setPos(p_scene)
             self.scene.addItem(dot)
@@ -369,7 +389,6 @@ class MainActions:
         return getattr(self.document, "contours_px", []) or []
 
     def _clear_contours_items(self) -> None:
-        # quita todos los ContourItem de la escena y resetea la lista
         for it in list(self.scene.items()):
             if isinstance(it, ContourItem):
                 self.scene.removeItem(it)
@@ -381,7 +400,6 @@ class MainActions:
         if self._bg_item is None:
             return
 
-        # escala escena por pixel de referencia (mm/px * mm_to_scene)
         mmpp = self.document.get_mm_per_pixel()
         if mmpp is None:
             return
@@ -389,22 +407,28 @@ class MainActions:
         sy = float(mmpp[1]) * self.mm_to_scene
 
         for ct in self._iterate_contours_px():
-            # Contour tiene: cx, cy, width, height, angle_deg (y opcional polygon)
             cx, cy = float(ct.cx), float(ct.cy)
-            # centro en escena usando el mismo mapeo que centroides:
             p_scene = self._bg_item.mapToScene(QPointF(cx, cy))
-            # dimensiones en escena (de px_ref → mm_escena)
-            w_scene = float(ct.width)  * sx
+            w_scene = float(ct.width) * sx
             h_scene = float(ct.height) * sy
-            sig = ContourSignature(
-                cx=float(p_scene.x()),
-                cy=float(p_scene.y()),
-                width=w_scene,
-                height=h_scene,
-                angle_deg=float(ct.angle_deg),
-            )
-            item = ContourItem()
-            item.set_from_signature(sig)
+
+            # Si tu ContourItem tiene set_from_signature:
+            try:
+                from editor_tif.domain.models.template import ContourSignature
+                sig = ContourSignature(
+                    cx=float(p_scene.x()),
+                    cy=float(p_scene.y()),
+                    width=w_scene,
+                    height=h_scene,
+                    angle_deg=float(ct.angle_deg),
+                )
+                item = ContourItem()
+                item.set_from_signature(sig)
+            except Exception:
+                # Fallback simple: rect axis-aligned
+                item = ContourItem()
+                item.setRect(p_scene.x() - w_scene / 2.0, p_scene.y() - h_scene / 2.0, w_scene, h_scene)
+
             self.scene.addItem(item)
             self._contour_items.append(item)
 
@@ -415,14 +439,11 @@ class MainActions:
                 it.setVisible(visible)
 
     def _set_contours_visible(self, visible: bool) -> None:
-        if not self._contour_items:
-            return
         for it in self._contour_items:
             try:
                 it.setVisible(visible)
             except Exception:
                 pass
-
 
     # ---------- Varios ----------
     def _fit_all_view(self) -> None:
@@ -434,21 +455,65 @@ class MainActions:
         self.window.viewer.fitInView(r, Qt.KeepAspectRatio)
 
     def _update_actions_state(self) -> None:
+        """
+        Habilita/deshabilita acciones de toolbar según selección, escena y modo:
+        - Crear plantilla: 1 ImageItem + 1 (Contour|Centroid) seleccionados.
+        - Aplicar a todos: existe al menos 1 plantilla en escena.
+        - Aplicar a selección: hay una plantilla seleccionada.
+        - Clonar en centroides: ImageItem seleccionado + >=1 centroid en escena.
+        """
+        # --- Guardar (si corresponde) ---
         try:
             acts = self.toolbar_manager.actions
             if "save" in acts:
                 acts["save"].setEnabled(self.document.has_output or bool(self.document.layers))
-            if "add_item" in acts:
-                acts["add_item"].setEnabled(True)
         except Exception:
             pass
+
+        # --- Recolecta estado de selección/escena ---
+        sel = list(self.scene.selectedItems()) if self.scene else []
+        scene_items = list(self.scene.items()) if self.scene else []
+
+        n_img      = sum(isinstance(s, ImageItem) for s in sel)
+        n_tgt      = sum(isinstance(s, (CentroidItem, ContourItem)) for s in sel)
+        has_imgSel = n_img > 0
+        has_tgtSel = n_tgt > 0
+
+        # Plantillas en escena y seleccionadas
+        has_templates     = any(isinstance(it, TemplateGroupItem) for it in scene_items)
+        has_template_sel  = any(isinstance(s, TemplateGroupItem) for s in sel)
+
+        # Centroides en escena
+        has_any_centroid  = any(isinstance(it, CentroidItem) for it in scene_items)
+
+        # --- Reglas por acción ---
+        can_create_tpl = (n_img == 1 and n_tgt == 1)
+        can_apply_all  = has_templates and has_template_sel
+        can_apply_sel  = has_templates and has_template_sel and has_tgtSel
+        can_clone      = has_imgSel and has_any_centroid
+
+        # --- Si manejas modos, respétalos (opcional pero recomendable) ---
+        mode = getattr(self, "mode", None)
+        if mode == EditorMode.CloneByCentroid:
+            # En modo Clone, desactiva acciones de plantilla
+            self.toolbar_manager.set_template_enabled(create=False, apply_all=False, apply_sel=False)
+            self.toolbar_manager.set_clone_enabled(can_clone)
+            return
+        elif mode == EditorMode.Template:
+            # En modo Plantilla, desactiva "clone"
+            self.toolbar_manager.set_clone_enabled(False)
+            self.toolbar_manager.set_template_enabled(create=can_create_tpl, apply_all=can_apply_all, apply_sel=can_apply_sel)
+            return
+
+        # --- Sin modo específico: aplica reglas generales ---
+        self.toolbar_manager.set_template_enabled(create=can_create_tpl, apply_all=can_apply_all, apply_sel=can_apply_sel)
+        self.toolbar_manager.set_clone_enabled(can_clone)
 
     def _update_status(self) -> None:
         parts: list[str] = []
         if getattr(self.document, "reference_path", None) is not None:
             parts.append(f"Referencia: {self.document.reference_path.name}")
 
-        # Recuento compat: intenta centroids_px, luego centroids
         n_c = len(self._iterate_centroids_px())
         parts.append(f"Objetos: {n_c}")
 

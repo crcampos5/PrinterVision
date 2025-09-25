@@ -258,7 +258,7 @@ class ContourItem(QGraphicsPolygonItem):
             QGraphicsPolygonItem.ItemIsSelectable
             | QGraphicsPolygonItem.ItemIsFocusable
         )
-        self.setPen(QPen(Qt.red, 1, Qt.SolidLine))
+        self.setPen(QPen(Qt.red, 0.5, Qt.SolidLine))
         self.setBrush(QBrush(Qt.transparent))
         self._sig: Optional[ContourSignature] = None
 

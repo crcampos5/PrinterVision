@@ -94,6 +94,8 @@ class Placement:
     rotation_deg: float
     scale_x: float
     scale_y: float
+    piv_x: float
+    piv_y: float
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from typing import Sequence, Tuple, List, Callable, Optional
-from dataclasses import replace
-
 import math
 
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
@@ -17,7 +15,6 @@ from editor_tif.domain.models.template import (
     Template,
     ContourSignature,
     PlacementRule,
-    FitMode,
     Placement,
 )
 
@@ -27,74 +24,17 @@ from editor_tif.domain.models.template import (
 Centroid = Tuple[float, float]
 
 
-# -------------------------
-# CÁLCULO DE PLACEMENT
-# -------------------------
-def _compute_scales(
-    item_w: float,
-    item_h: float,
-    bbox_w: float,
-    bbox_h: float,
-    fit_mode: FitMode,
-    keep_aspect_ratio: bool,
-) -> Tuple[float, float]:
-    """Devuelve (scale_x, scale_y) para llevar el item al bbox según el fit_mode."""
-    if item_w <= 0 or item_h <= 0:
-        return 1.0, 1.0
-
-    sx_w = bbox_w / item_w
-    sy_h = bbox_h / item_h
-
-    if fit_mode == FitMode.NONE:
-        sx, sy = 1.0, 1.0
-
-    elif fit_mode == FitMode.FIT_WIDTH:
-        sx = sx_w
-        sy = sx if keep_aspect_ratio else 1.0
-
-    elif fit_mode == FitMode.FIT_HEIGHT:
-        sy = sy_h
-        sx = sy if keep_aspect_ratio else 1.0
-
-    elif fit_mode == FitMode.FIT_SHORT:
-        s = min(sx_w, sy_h)
-        sx = sy = s
-
-    elif fit_mode == FitMode.FIT_LONG:
-        s = max(sx_w, sy_h)
-        sx = sy = s
-
-    elif fit_mode == FitMode.STRETCH:
-        sx = sx_w
-        sy = sy_h
-
-    else:
-        sx, sy = 1.0, 1.0
-
-    if keep_aspect_ratio and fit_mode in (FitMode.FIT_WIDTH, FitMode.FIT_HEIGHT):
-        # ya sincronizado arriba
-        pass
-
-    return float(sx), float(sy)
-
-
-def _anchor_offset_local(item_w: float, item_h: float, anchor_norm: Tuple[float, float]) -> Tuple[float, float]:
-    """
-    Devuelve el offset (en coords locales del item) para que el punto anchor_norm quede en el origen.
-    Ej: anchor=(0.5,0.5) -> centra el item.
-    """
-    ax, ay = anchor_norm
-    return -(ax * item_w), -(ay * item_h)
-
-
-def _offset_in_bbox(rule: PlacementRule, bbox_w: float, bbox_h: float) -> Tuple[float, float]:
-    """
-    Desplazamiento normalizado (0..1) dentro del bbox del contorno, antes de rotar.
-    (0.5,0.5) centra el anclaje en el centro del bbox.
-    """
-    ox = rule.offset_norm[0] * bbox_w
-    oy = rule.offset_norm[1] * bbox_h
-    return ox, oy
+# =========================================================
+# Colocación desde PLANTILLA (sin escalado, centro como ancla)
+# =========================================================
+def _clamp01_pair(v) -> Tuple[float, float]:
+    """Devuelve (x,y) clamp en [0,1], con fallback (0.5,0.5) si algo viene mal."""
+    try:
+        x = max(0.0, min(1.0, float(v[0])))
+        y = max(0.0, min(1.0, float(v[1])))
+        return x, y
+    except Exception:
+        return 0.5, 0.5
 
 
 def placement_from_template(
@@ -102,89 +42,75 @@ def placement_from_template(
     target: ContourSignature,
 ) -> Placement:
     """
-    Calcula la Placement final (tx, ty, rot, sx, sy) de un item de tamaño original
-    template.item_original_size sobre un contorno destino (target).
+    Calcula Placement para reproducir la RELACIÓN RELATIVA guardada en la plantilla:
+      - Sin escalado (sx = sy = 1).
+      - El centro del ítem se coloca en: (cx_dest, cy_dest) + R(angle_dest) * delta_local_dest
+        donde delta_local_dest se obtiene de offset_norm y tamaño del bbox destino.
+      - Rotación final: angle_dest + rotation_offset_deg.
 
-    Convenciones:
-    - angle_deg del contorno es antihoraria.
-    - rotation_offset_deg se suma a la orientación del contorno.
-    - offset_norm se aplica en el marco del bbox del contorno (antes de rotar).
-    - anchor_norm define el punto del item que se alinea al destino.
+    Asume que template.rule.offset_norm y template.rule.rotation_offset_deg
+    fueron medidos al CREAR la plantilla respecto al contorno base.
     """
-    iw, ih = template.item_original_size
-    rule = template.rule
+    rule: PlacementRule = template.rule
 
-    # 1) escalas
-    sx, sy = _compute_scales(iw, ih, target.width, target.height, rule.fit_mode, rule.keep_aspect_ratio)
+    # 1) Sin escalado
+    sx = sy = 1.0
 
-    # 2) tamaño efectivo post-escala
-    eff_w = iw * sx
-    eff_h = ih * sy
+    # 2) Offset normalizado (en marco del bbox del contorno base) -> clamp y usar como relación
+    off_xn, off_yn = _clamp01_pair(getattr(rule, "offset_norm", (0.5, 0.5)))
 
-    # 3) offset local por anclaje (mueve el item para que anchor quede en el (0,0) local)
-    off_local_x, off_local_y = _anchor_offset_local(eff_w, eff_h, rule.anchor_norm)
-
-    # 4) offset dentro del bbox del contorno, en marco del contorno (sin rotación)
-    bbox_off_x, bbox_off_y = _offset_in_bbox(rule, target.width, target.height)
-
-    # 5) rotación final
-    rot = (target.angle_deg + rule.rotation_offset_deg) % 360.0
+    # 3) Rotación final
+    rot = (target.angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
     rot_rad = math.radians(rot)
 
-    # 6) posición final:
-    #    - partimos del centro del contorno
-    #    - aplicamos offset del bbox (en el marco del contorno)
-    #    - y aplicamos el offset local del anclaje (ya escalado) y lo rotamos
-    # Centro del bbox (cx, cy)
-    cx, cy = target.cx, target.cy
+    # 4) Offset local destino (marco del bbox destino, sin rotar)
+    #    (0.5,0.5) significa el centro del bbox -> delta (0,0)
+    dx_local = (off_xn - 0.5) * target.width
+    dy_local = (off_yn - 0.5) * target.height
 
-    # Offset del bbox en marco del contorno (x horizontal del bbox, y vertical del bbox)
-    # Rotamos ese offset por el ángulo del contorno para pasarlo a escena:
-    rx = math.cos(rot_rad) * (bbox_off_x - target.width * 0.5) - math.sin(rot_rad) * (bbox_off_y - target.height * 0.5)
-    ry = math.sin(rot_rad) * (bbox_off_x - target.width * 0.5) + math.cos(rot_rad) * (bbox_off_y - target.height * 0.5)
+    # 5) Convertir delta_local al marco de ESCENA usando la orientación final 'rot'
+    dx_scene = math.cos(rot_rad) * dx_local - math.sin(rot_rad) * dy_local
+    dy_scene = math.sin(rot_rad) * dx_local + math.cos(rot_rad) * dy_local
 
-    # Offset local del anclaje del item se aplica tal cual, porque setOffset() lo compensa al dibujar
-    # Aquí lo convertimos a una traslación en escena rotando el vector (off_local_x, off_local_y):
-    off_rot_x = math.cos(rot_rad) * off_local_x - math.sin(rot_rad) * off_local_y
-    off_rot_y = math.sin(rot_rad) * off_local_x + math.cos(rot_rad) * off_local_y
+    # 6) Posición final del CENTRO del ítem
+    tx = target.cx + dx_scene
+    ty = target.cy + dy_scene
 
-    tx = cx + rx + off_rot_x
-    ty = cy + ry + off_rot_y
-
-    return Placement(tx=tx, ty=ty, rotation_deg=rot, scale_x=sx, scale_y=sy)
+    return Placement(tx=tx, ty=ty, rotation_deg=rot, scale_x=sx, scale_y=sy, piv_x=target.cx, piv_y=target.cy)
 
 
-# -------------------------
-# APLICAR A ITEMS / ESCENA
-# -------------------------
+# =========================================================
+# Aplicar Placement a un ImageItem (centro en tx,ty)
+# =========================================================
 def apply_placement_to_item(
     item: ImageItem,
     placement: Placement,
 ) -> None:
     """
-    Aplica la transformación calculada a un ImageItem.
-    - Usa el centro del boundingRect como pivot de rotación.
-    - Usa setOffset() para compensar el anclaje.
+    Aplica Placement a un ImageItem asumiendo que (tx,ty) es el CENTRO del ítem.
+    - Pivote: centro del boundingRect.
+    - Offset: (-w/2, -h/2) para que setPos() sitúe el centro del ítem en (tx,ty).
+    - Sin escalado (1.0).
     """
     br = item.boundingRect()
-    # setTransformOriginPoint -> pivot en el centro visual del item (post-offset)
+
+    # Pivot al centro del rect local
     item.setTransformOriginPoint(br.center())
 
-    # Al usar setOffset(), movemos el “lienzo local” del item. Como Placement ya incluye
-    # la compensación del anclaje, dejamos el offset en (0,0) y confiamos en tx/ty.
-    # Si deseas forzar que el anclaje quede exactamente en el centro del QPixmap, podrías
-    # calcular aquí un offset distinto. En este flujo, no es necesario.
-    item.setOffset(0.0, 0.0)
+    # Colocar el origen local en la esquina sup-izq del rect y POSicionar el CENTRO en (tx,ty)
+    item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
 
-    # Rotación
+    # Rotación y escala
     item.setRotation(placement.rotation_deg)
-    # Escalas (en ImageItem, suele implementarse con una propiedad scale o matriz)
-    item.setScale(max(placement.scale_x, placement.scale_y))  # si solo soportas escala uniforme
+    item.setScale(1.0)  # sin escalado
 
-    # Posición final
+    # Posición final (centro del ítem)
     item.setPos(QPointF(placement.tx, placement.ty))
 
 
+# =========================================================
+# Utilidades de clonado por centroides (flujo legacy)
+# =========================================================
 def _clone_from_item(src: QGraphicsItem) -> QGraphicsItem:
     """
     Clona un QGraphicsItem. Idealmente, ImageItem provee .clone().
@@ -210,7 +136,7 @@ def clone_item_to_centroids(
 ) -> List[ImageItem]:
     """
     Clona un ImageItem en cada CentroidItem de la escena, generando un Layer por clon.
-    Conserva metadata CMYK/ICC y estados; posiciona por centroide.
+    Conserva metadata CMYK/ICC y estados; posiciona por centroide (centro).
     """
     centroids = [it for it in scene.items() if isinstance(it, CentroidItem)]
     if not centroids:
@@ -244,12 +170,12 @@ def clone_item_to_centroids(
         # 2) nuevo ImageItem ligado a ese Layer
         item = ImageItem(layer, document=document, mm_to_scene=mm_to_scene)
 
-        # Alinear pivot al centro visual
+        # Pivot y offset para posicionar por el centro
         br = item.boundingRect()
         item.setTransformOriginPoint(br.center())
+        item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
 
         # 3) posicionar en el centroide (centro geométrico)
-        item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
         item.setPos(c.center_scene_pos())
 
         # Sincronizar layer.x/y (en mm)
@@ -265,9 +191,9 @@ def clone_item_to_centroids(
     return created
 
 
-# -------------------------
-# MOSAICO (OPENCV/NUMPY)
-# -------------------------
+# =========================================================
+# OpenCV/NumPy (mosaico por centroides)
+# =========================================================
 def place_tile_on_centroids(canvas, tile, centroids: Sequence[Centroid]):
     """
     Superpone la imagen `tile` centrada en cada centroid sobre `canvas`.
@@ -297,9 +223,9 @@ def place_tile_on_centroids(canvas, tile, centroids: Sequence[Centroid]):
     return result
 
 
-# -------------------------
-# APLICAR TEMPLATE A TODOS LOS CONTORNOS (vía CentroidItem)
-# -------------------------
+# =========================================================
+# Aplicar plantilla sobre todos los centroides (adaptador)
+# =========================================================
 def apply_template_over_scene_centroids(
     scene: QGraphicsScene,
     template: Template,

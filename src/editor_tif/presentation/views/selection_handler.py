@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Qt
 from shiboken6 import Shiboken
 
 from editor_tif.presentation.views.scene_items import ImageItem, ContourItem, CentroidItem
+from editor_tif.presentation.views.template_items import TemplateGroupItem
 from editor_tif.presentation.modes import EditorMode
 from editor_tif.domain.commands.commands import TransformItemCommand
 
@@ -90,7 +91,8 @@ class SelectionHandler(QObject):
     # -----------------------------
     def update_mode(self, mode: EditorMode):
         self._mode = mode
-        self._refresh_actions()
+        self.main.actions._update_actions_state()
+        #self._refresh_actions()
 
     # -----------------------------
     # Selección
@@ -119,7 +121,8 @@ class SelectionHandler(QObject):
             self._pre[img_it] = self._capture(img_it)
             self.bind_item(img_it)
 
-        self._refresh_actions()
+        #self._refresh_actions()
+        self.main.actions._update_actions_state()
 
 
     # -----------------------------
@@ -221,24 +224,52 @@ class SelectionHandler(QObject):
     # Toolbar / acciones por modo
     # -----------------------------
     def _refresh_actions(self):
-        # Estado para clonado en modo Centroide (como ya estaba)
-        sel_img_for_clone = isinstance(self.selected_item(), ImageItem)
+        """
+        Reglas:
+        - CloneByCentroid: habilita solo clonado por centroides, desactiva plantilla.
+        - Template:
+            * create: exactamente 1 ImageItem + 1 (ContourItem|CentroidItem) seleccionados
+            * apply_all: existe al menos 1 TemplateGroupItem en escena
+            * apply_sel: selección actual es TemplateGroupItem
+        - Otros modos: todo de plantilla desactivado.
+        """
+        # Seguridad
+        scene_items = self._scene.items() if _is_valid(self._scene) else []
+        selected = self._scene.selectedItems()
+        n_tgt      = sum(isinstance(s, (CentroidItem, ContourItem)) for s in selected)
+        has_tgtSel = n_tgt > 1
+
+        # --- Modo CloneByCentroid ---
         if self._mode == EditorMode.CloneByCentroid:
+            sel_img_for_clone = any(isinstance(it, ImageItem) for it in selected)
             self.main.toolbar_manager.set_clone_enabled(sel_img_for_clone)
-            # Modo centroide: esconder/habilitar plantilla por defecto desde toolbar
             self.main.toolbar_manager.set_template_enabled(create=False, apply_all=False, apply_sel=False)
             return
 
-        # Modo Plantilla: 1 ImageItem + 1 Contour (o Centroid) seleccionados
-        items = self._scene.selectedItems() if _is_valid(self._scene) else []
-        n_img = sum(isinstance(it, ImageItem) for it in items)
-        n_contour = sum(isinstance(it, ContourItem) for it in items)
-        n_centroid = sum(isinstance(it, CentroidItem) for it in items)
+        # --- Modo Template ---
+        if self._mode == EditorMode.Template:
+            n_img = sum(isinstance(it, ImageItem) for it in selected)
+            n_contour = sum(isinstance(it, ContourItem) for it in selected)
+            n_centroid = sum(isinstance(it, CentroidItem) for it in selected)
+            has_template_in_scene = any(isinstance(it, TemplateGroupItem) for it in scene_items)
+            sel_has_template = any(isinstance(it, TemplateGroupItem) for it in selected)
 
-        create_ok = (n_img == 1) and ((n_contour + n_centroid) == 1)
-        # apply_all/apply_sel: sin conocer si hay plantilla activa, mantenlos en False
+            create_ok = (n_img == 1) and ((n_contour + n_centroid) == 1)
+            apply_all_ok = bool(has_template_in_scene and sel_has_template)
+            apply_sel_ok = bool(has_template_in_scene and sel_has_template and has_tgtSel)
+
+            # Clonado NO aplica en modo plantilla
+            self.main.toolbar_manager.set_clone_enabled(False)
+            self.main.toolbar_manager.set_template_enabled(
+                create=create_ok,
+                apply_all=apply_all_ok,
+                apply_sel=apply_sel_ok
+            )
+            return
+
+        # --- Otros modos: deshabilitar todo ---
         self.main.toolbar_manager.set_clone_enabled(False)
-        self.main.toolbar_manager.set_template_enabled(create=create_ok, apply_all=False, apply_sel=False)
+        self.main.toolbar_manager.set_template_enabled(create=False, apply_all=False, apply_sel=False)
 
 
     # -----------------------------
