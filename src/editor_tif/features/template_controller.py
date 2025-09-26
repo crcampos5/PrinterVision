@@ -37,6 +37,21 @@ from editor_tif.presentation.views.template_items import TemplateGroupItem
 TargetItem = Union[CentroidItem, ContourItem]
 
 
+def _signature_direction_angle_deg(sig: ContourSignature) -> Optional[float]:
+    axis = getattr(sig, "principal_axis", None)
+    if not axis:
+        return None
+    try:
+        vx = float(axis[0])
+        vy = float(axis[1])
+    except (TypeError, ValueError):
+        return None
+    if abs(vx) < 1e-9 and abs(vy) < 1e-9:
+        return None
+    ang = math.degrees(math.atan2(vy, vx))
+    return ang % 360.0
+
+
 @dataclass
 class TemplateRecord:
     """Registro de plantilla 'lógica' (modelo) para clonación automática."""
@@ -179,7 +194,9 @@ class TemplateController:
         dy_scene = ci_scene.y() - cy
 
         # Pasar delta al marco LOCAL DEL CONTORNO (rotando por -angle)
-        ang_rad = math.radians(sig.angle_deg)
+        direction_angle_deg = _signature_direction_angle_deg(sig)
+        angle_for_offsets_deg = direction_angle_deg if direction_angle_deg is not None else float(sig.angle_deg)
+        ang_rad = math.radians(angle_for_offsets_deg)
         cos_a = math.cos(ang_rad)
         sin_a = math.sin(ang_rad)
         # Rot(-ang) * [dx, dy]
@@ -197,7 +214,8 @@ class TemplateController:
         off_yn = 0.0 if off_yn < 0.0 else (1.0 if off_yn > 1.0 else off_yn)
 
         # Rotación relativa (módulo 360)
-        rot_off = (float(item.rotation()) - float(sig.angle_deg)) % 360.0
+        contour_angle_deg = direction_angle_deg if direction_angle_deg is not None else float(sig.angle_deg)
+        rot_off = (float(item.rotation()) - contour_angle_deg) % 360.0
 
         # Construir nueva regla (PlacementRule es frozen → no mutar, crear copia)
         if base_rule is None:

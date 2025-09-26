@@ -213,21 +213,33 @@ class CentroidItem(QGraphicsEllipseItem):
         self._bbox_w: float = float(bbox_width)
         self._bbox_h: float = float(bbox_height)
         self._angle_deg: float = float(angle_deg)
+        self._principal_axis: Optional[Tuple[float, float]] = None
 
     # ---- Helpers geométricos ----
     def center_scene_pos(self) -> QPointF:
         """Devuelve la posición del centroide en coordenadas de escena."""
         return self.scenePos()
 
-    def set_signature(self, *, bbox_width: float, bbox_height: float, angle_deg: float) -> None:
+    def set_signature(
+        self,
+        *,
+        bbox_width: float,
+        bbox_height: float,
+        angle_deg: float,
+        principal_axis: Optional[Tuple[float, float]] = None,
+    ) -> None:
         """Actualiza ancho/alto del bbox y ángulo del contorno asociado."""
         self._bbox_w = float(bbox_width)
         self._bbox_h = float(bbox_height)
         self._angle_deg = float(angle_deg)
+        if principal_axis is None:
+            self._principal_axis = None
+        else:
+            self._principal_axis = (float(principal_axis[0]), float(principal_axis[1]))
 
-    def get_signature(self) -> Tuple[float, float, float]:
-        """Obtiene (bbox_width, bbox_height, angle_deg)."""
-        return self._bbox_w, self._bbox_h, self._angle_deg
+    def get_signature(self) -> Tuple[float, float, float, Optional[Tuple[float, float]]]:
+        """Obtiene (bbox_width, bbox_height, angle_deg, principal_axis)."""
+        return self._bbox_w, self._bbox_h, self._angle_deg, self._principal_axis
 
     # ---- Export directo a dominio ----
     def to_contour_signature(self) -> ContourSignature:
@@ -243,6 +255,7 @@ class CentroidItem(QGraphicsEllipseItem):
             width=self._bbox_w,
             height=self._bbox_h,
             angle_deg=self._angle_deg,
+            principal_axis=self._principal_axis,
         )
 
 

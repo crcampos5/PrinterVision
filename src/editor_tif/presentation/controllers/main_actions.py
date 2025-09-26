@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Optional, Iterable
 
@@ -422,13 +423,23 @@ class MainActions:
                         for (x, y) in ct.polygon
                     ]
 
+                principal_axis = None
+                if getattr(ct, "principal_axis", None):
+                    ax, ay = ct.principal_axis
+                    ax_scene = float(ax) * sx
+                    ay_scene = float(ay) * sy
+                    norm = math.hypot(ax_scene, ay_scene)
+                    if norm > 1e-9:
+                        principal_axis = (ax_scene / norm, ay_scene / norm)
+
                 sig = ContourSignature(
                     cx=float(p_scene.x()),
                     cy=float(p_scene.y()),
                     width=w_scene,
                     height=h_scene,
                     angle_deg=float(ct.angle_deg),
-                    polygon=poly_scene
+                    polygon=poly_scene,
+                    principal_axis=principal_axis,
                 )
                 item = ContourItem()
                 item.set_from_signature(sig)
