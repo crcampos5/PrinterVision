@@ -46,7 +46,8 @@ def placement_from_template(
       - Sin escalado (sx = sy = 1).
       - El centro del ítem se coloca en: (cx_dest, cy_dest) + R(angle_dest) * delta_local_dest
         donde delta_local_dest se obtiene de offset_norm y tamaño del bbox destino.
-      - Rotación final: angle_dest + rotation_offset_deg.
+      - El desplazamiento se orienta con angle_dest únicamente, conservando el anclaje relativo.
+      - Rotación final del ítem: angle_dest + rotation_offset_deg.
 
     Asume que template.rule.offset_norm y template.rule.rotation_offset_deg
     fueron medidos al CREAR la plantilla respecto al contorno base.
@@ -61,16 +62,16 @@ def placement_from_template(
 
     # 3) Rotación final
     rot = (target.angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
-    rot_rad = math.radians(rot)
+    angle_rad = math.radians(target.angle_deg % 360.0)
 
     # 4) Offset local destino (marco del bbox destino, sin rotar)
     #    (0.5,0.5) significa el centro del bbox -> delta (0,0)
     dx_local = (off_xn - 0.5) * target.width
     dy_local = (off_yn - 0.5) * target.height
 
-    # 5) Convertir delta_local al marco de ESCENA usando la orientación final 'rot'
-    dx_scene = math.cos(rot_rad) * dx_local - math.sin(rot_rad) * dy_local
-    dy_scene = math.sin(rot_rad) * dx_local + math.cos(rot_rad) * dy_local
+    # 5) Convertir delta_local al marco de ESCENA usando la orientación del contorno (angle_deg)
+    dx_scene = math.cos(angle_rad) * dx_local - math.sin(angle_rad) * dy_local
+    dy_scene = math.sin(angle_rad) * dx_local + math.cos(angle_rad) * dy_local
 
     # 6) Posición final del CENTRO del ítem
     tx = target.cx + dx_scene
