@@ -115,12 +115,40 @@ def apply_placement_to_item(
     # Colocar el origen local en la esquina sup-izq del rect y POSicionar el CENTRO en (tx,ty)
     item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
 
-    # Rotación y escala
-    item.setRotation(placement.rotation_deg)
-    item.setScale(1.0)  # sin escalado
+    # Sincronizar layer <-> item para que doc.save utilice la pose real
+    layer = getattr(item, "layer", None)
+    mm_to_scene = float(getattr(item, "mm_to_scene", 1.0) or 1.0)
 
-    # Posición final (centro del ítem)
-    item.setPos(QPointF(placement.tx, placement.ty))
+    if layer is not None:
+        layer.x = float(placement.tx) / mm_to_scene
+        layer.y = float(placement.ty) / mm_to_scene
+        layer.rotation = float(placement.rotation_deg)
+
+        sx = float(placement.scale_x)
+        sy = float(placement.scale_y)
+        if math.isfinite(sx) and math.isfinite(sy):
+            if math.isclose(sx, sy, rel_tol=1e-6, abs_tol=1e-6):
+                layer.scale = sx
+            else:
+                layer.scale = (sx + sy) * 0.5
+        elif math.isfinite(sx):
+            layer.scale = sx
+        elif math.isfinite(sy):
+            layer.scale = sy
+
+    # Reflejar el estado del layer en el item
+    if hasattr(item, "sync_from_layer") and callable(item.sync_from_layer):
+        item.sync_from_layer()
+    else:
+        item.setRotation(placement.rotation_deg)
+        item.setScale(float(placement.scale_x))
+        item.setPos(QPointF(placement.tx, placement.ty))
+
+    events = getattr(item, "events", None)
+    committed = getattr(events, "committed", None)
+    emit = getattr(committed, "emit", None)
+    if callable(emit):
+        emit(item)
 
 
 # =========================================================
