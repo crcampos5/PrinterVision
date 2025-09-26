@@ -62,25 +62,14 @@ def placement_from_template(
 
     # 3) Orientación del contorno (usa vector dirigido si existe)
     principal_axis = getattr(target, "principal_axis", None)
-    template_axis = getattr(getattr(template, "base_contour", None), "principal_axis", None)
     angle_from_axis = None
     if principal_axis:
         try:
             vx = float(principal_axis[0])
             vy = float(principal_axis[1])
-        except (TypeError, ValueError, IndexError):
+        except (TypeError, ValueError):
             vx = vy = 0.0
         if abs(vx) > 1e-9 or abs(vy) > 1e-9:
-            if template_axis:
-                try:
-                    bx = float(template_axis[0])
-                    by = float(template_axis[1])
-                except (TypeError, ValueError, IndexError):
-                    bx = by = 0.0
-                if abs(bx) > 1e-9 or abs(by) > 1e-9:
-                    if vx * bx + vy * by < 0.0:
-                        vx = -vx
-                        vy = -vy
             angle_from_axis = math.degrees(math.atan2(vy, vx)) % 360.0
 
     base_angle_deg = angle_from_axis if angle_from_axis is not None else float(target.angle_deg)
