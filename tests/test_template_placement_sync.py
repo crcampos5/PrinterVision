@@ -15,8 +15,16 @@ pytest.importorskip("PySide6.QtWidgets")
 from PySide6.QtWidgets import QApplication, QGraphicsScene
 from PySide6.QtCore import QPointF
 
-from editor_tif.domain.models.template import Placement
-from editor_tif.domain.services.placement import apply_placement_to_item
+from editor_tif.domain.models.template import (
+    ContourSignature,
+    Placement,
+    PlacementRule,
+    Template,
+)
+from editor_tif.domain.services.placement import (
+    apply_placement_to_item,
+    placement_from_template,
+)
 from editor_tif.presentation.views.scene_items import ImageItem, Layer
 
 
@@ -87,3 +95,39 @@ def test_item_change_keeps_layer_in_sync(qt_app):
 
     item.setScale(1.3)
     assert item.layer.scale == pytest.approx(item.scale())
+
+
+def test_placement_from_template_aligns_principal_axis():
+    base_signature = ContourSignature(
+        cx=0.0,
+        cy=0.0,
+        width=30.0,
+        height=10.0,
+        angle_deg=0.0,
+        principal_axis=(1.0, 0.0),
+    )
+    rule = PlacementRule(offset_norm=(1.0, 0.5), rotation_offset_deg=30.0)
+    template = Template(
+        item_source_id="dummy",
+        item_original_size=(10.0, 5.0),
+        base_contour=base_signature,
+        rule=rule,
+    )
+
+    target_signature = ContourSignature(
+        cx=100.0,
+        cy=200.0,
+        width=40.0,
+        height=20.0,
+        angle_deg=0.0,
+        principal_axis=(-1.0, 0.0),
+    )
+
+    placement = placement_from_template(template, target_signature)
+
+    expected_rotation = (target_signature.angle_deg + rule.rotation_offset_deg) % 360.0
+    assert placement.rotation_deg == pytest.approx(expected_rotation)
+
+    expected_tx = target_signature.cx + (target_signature.width * 0.5)
+    assert placement.tx == pytest.approx(expected_tx)
+    assert placement.ty == pytest.approx(target_signature.cy)
