@@ -12,13 +12,6 @@ def _cmyk_to_rgb8_from_order(a: np.ndarray, order: Tuple[int,int,int,int]) -> np
     B = (1.0 - np.minimum(1.0, Y + K))
     return (np.stack([R, G, B], axis=-1) * 255.0).astype(np.uint8)
 
-def _rgba_over_white_to_rgb8(a: np.ndarray) -> np.ndarray:
-    """RGBA uint8 -> RGB uint8 compuesto sobre blanco (para preview)."""
-    rgb = a[..., :3].astype(np.float32)
-    alpha = a[..., 3].astype(np.float32) / 255.0
-    out = (rgb * alpha[..., None] + 255.0 * (1.0 - alpha[..., None]))
-    return out.astype(np.uint8)
-
 def _to_preview_rgb8(arr: np.ndarray, photometric_hint: Optional[str] = None,
                      cmyk_order: Optional[Tuple[int,int,int,int]] = None,
                      alpha_index: Optional[int] = None) -> np.ndarray:

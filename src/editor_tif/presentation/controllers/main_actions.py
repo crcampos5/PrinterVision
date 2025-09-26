@@ -415,12 +415,20 @@ class MainActions:
             # Si tu ContourItem tiene set_from_signature:
             try:
                 from editor_tif.domain.models.template import ContourSignature
+                poly_scene = None
+                if ct.polygon and len(ct.polygon) >= 3:
+                    poly_scene = [
+                        self._bg_item.mapToScene(QPointF(float(x), float(y)))
+                        for (x, y) in ct.polygon
+                    ]
+
                 sig = ContourSignature(
                     cx=float(p_scene.x()),
                     cy=float(p_scene.y()),
                     width=w_scene,
                     height=h_scene,
                     angle_deg=float(ct.angle_deg),
+                    polygon=poly_scene
                 )
                 item = ContourItem()
                 item.set_from_signature(sig)

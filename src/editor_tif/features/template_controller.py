@@ -119,18 +119,6 @@ class TemplateController:
         br = item.boundingRect()
         return br.width() * self.mm_to_scene, br.height() * self.mm_to_scene
 
-    @staticmethod
-    def _polygon_center(poly: QPolygonF) -> QPointF:
-        if poly.isEmpty():
-            return QPointF(0.0, 0.0)
-        sx = sy = 0.0
-        for i in range(poly.count()):
-            p = poly.at(i)
-            sx += p.x()
-            sy += p.y()
-        n = float(poly.count())
-        return QPointF(sx / n, sy / n)
-
     def _item_center_in_scene(self, item: ImageItem) -> QPointF:
         """Centro exacto del item en COORDENADAS DE ESCENA (respeta offset/rotación/escala)."""
         return item.mapToScene(item.boundingRect().center())

@@ -10,8 +10,6 @@ import cv2
 import numpy as np
 import tifffile
 
-from .image import normalize_to_uint8
-
 
 @dataclass
 class ImageData:

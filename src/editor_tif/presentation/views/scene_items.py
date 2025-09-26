@@ -263,27 +263,40 @@ class ContourItem(QGraphicsPolygonItem):
         self._sig: Optional[ContourSignature] = None
 
     def set_from_signature(self, sig: ContourSignature):
-        """Construye un rectángulo centrado (w×h) y lo rota en angle_deg, luego lo traslada a (cx,cy)."""
+        """Si sig.polygon existe (>=3 pts), dibuja ese polígono. 
+        Si no, construye un rect centrado (w×h), lo rota y lo traslada."""
         self._sig = sig
+
+        # 1) Intentar dibujar el polígono real
+        pts = getattr(sig, "polygon", None)
+        if pts and len(pts) >= 3:
+            # pts puede venir como [(x,y), ...] o [QPointF,...]
+            qpts = []
+            for p in pts:
+                if hasattr(p, "x"):  # QPointF
+                    qpts.append(QPointF(float(p.x()), float(p.y())))
+                else:                # tupla/lista (x,y)
+                    qpts.append(QPointF(float(p[0]), float(p[1])))
+            self.setPolygon(QPolygonF(qpts))
+            return
+
+        # 2) Fallback: rectángulo por firma (w,h,angle,cx,cy)
         w = float(max(sig.width, 1e-6))
         h = float(max(sig.height, 1e-6))
-
-        # rect centrado en el origen (local)
         hw, hh = w * 0.5, h * 0.5
+
         poly_local = QPolygonF([
             QPointF(-hw, -hh), QPointF(+hw, -hh),
             QPointF(+hw, +hh), QPointF(-hw, +hh)
         ])
 
-        # rotación
         t = QTransform()
         t.rotate(float(sig.angle_deg))
         poly_rot = t.map(poly_local)
 
-        # traslación a (cx,cy)
-        poly_rot_trans = QPolygonF([QPointF(p.x() + sig.cx, p.y() + sig.cy) for p in poly_rot])
-
+        poly_rot_trans = QPolygonF([QPointF(p.x() + float(sig.cx), p.y() + float(sig.cy)) for p in poly_rot])
         self.setPolygon(poly_rot_trans)
+
 
     def to_contour_signature(self) -> ContourSignature:
         if self._sig is None:

@@ -300,10 +300,6 @@ class ImageDocument:
             return np.full((height_px, width_px), white_val, dtype=dtype)
         return np.full((height_px, width_px, channels), white_val, dtype=dtype)
 
-    def _scaled_tile(self) -> Optional[np.ndarray]:
-        """Modo tile fijo: no remuestrea el tile (placeholder para futuro)."""
-        return self.tile_image if self.tile_image is not None else None
-
     def _generate_output(self) -> bool:
         """
         Compuesto rápido (tile fijo):

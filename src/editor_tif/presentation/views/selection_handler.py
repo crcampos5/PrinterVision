@@ -1,7 +1,9 @@
 # editor_tif/views/selection_handler.py
 from __future__ import annotations
+import math
 
 from PySide6.QtCore import QObject, Qt
+import numpy as np
 from shiboken6 import Shiboken
 
 from editor_tif.presentation.views.scene_items import ImageItem, ContourItem, CentroidItem
@@ -108,12 +110,36 @@ class SelectionHandler(QObject):
             if isinstance(it, ImageItem):
                 return it
         return items[0]
+    
+    def polygon_scene_pose(self, poly_item: ContourItem):
+        # 1. Obtener vértices en escena
+        pts = [poly_item.mapToScene(p) for p in poly_item.polygon()]
+        arr = np.array([[p.x(), p.y()] for p in pts])
+
+        # 2. Centroide
+        centroid = arr.mean(axis=0)
+
+        # 3. PCA: autovector del mayor autovalor = eje mayor
+        cov = np.cov((arr - centroid).T)
+        vals, vecs = np.linalg.eigh(cov)
+        axis = vecs[:, np.argmax(vals)]
+
+        # 4. Ángulo con eje X
+        angle = math.degrees(math.atan2(axis[1], axis[0]))
+        #if angle < 0:
+        #    angle += 180.0  # normalizar a [0,180)
+
+        # 5. Resultado
+        x, y = centroid
+        print(f"Centroide: ({x:.2f}, {y:.2f}), Ángulo: {angle:.2f}°")
+        return x, y, angle
 
 
     def on_selection_changed(self):
         it = self.selected_item()
         img_it = it if isinstance(it, ImageItem) else None
-
+        contour = it if isinstance(it, ContourItem) else None
+        x, y, ang = self.polygon_scene_pose(contour)
         # Dock: solo con ImageItem
         self.main.props.set_layer(img_it.layer if img_it else None)
 

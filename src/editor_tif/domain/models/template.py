@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Dict, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 import uuid
 import json
 
@@ -38,6 +38,7 @@ class ContourSignature:
     width: float        # ancho del bounding box del contorno
     height: float       # alto del bounding box del contorno
     angle_deg: float    # orientación principal del contorno (ej. eje mayor)
+    polygon: Optional[List[Tuple[float, float]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
