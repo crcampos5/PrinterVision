@@ -190,7 +190,11 @@ class ImageDocument:
         """
         Guarda el resultado (rasterizando capas si existen) con metadatos del tile.
         """
-        if self.layers:
+        has_raster_layers = any(
+            not getattr(layer, "is_template_overlay", False) for layer in self.layers
+        )
+
+        if has_raster_layers:
             img = self.rasterize_layers()
         else:
             if self.output_image is None:
@@ -370,7 +374,11 @@ class ImageDocument:
         - Warp affine expandido (sin recortes por rotación/escala).
         - Alpha opcional como máscara (>0); sin alpha: copia donde ≠ white.
         """
-        if self._reference_np is None and not self.layers:
+        drawable_layers = [
+            layer for layer in self.layers if not getattr(layer, "is_template_overlay", False)
+        ]
+
+        if self._reference_np is None and not drawable_layers:
             raise RuntimeError("No hay referencia ni capas para deducir resolución")
 
         # mm/px del canvas desde la referencia/workspace
@@ -382,7 +390,10 @@ class ImageDocument:
         height_px = max(1, int(round(self.workspace_height_mm / mmpp_y)))
 
         # Canvas: dtype/canales de la primera capa
-        base = self.layers[0].pixels
+        if not drawable_layers:
+            raise RuntimeError("No hay capas rasterizables")
+
+        base = drawable_layers[0].pixels
         dtype = base.dtype
         channels = (base.shape[2] if base.ndim == 3 else 1)
 
@@ -390,7 +401,7 @@ class ImageDocument:
         canvas = (np.full((height_px, width_px, channels), white, dtype=dtype)
                 if channels > 1 else np.full((height_px, width_px), white, dtype=dtype))
 
-        for layer in self.layers:
+        for layer in drawable_layers:
             img = layer.pixels
             # Normaliza a (H,W,C)
             if img.ndim == 2:

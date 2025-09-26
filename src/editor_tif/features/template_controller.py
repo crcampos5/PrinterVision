@@ -114,6 +114,14 @@ class TemplateController:
     # ---------------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------------
+    def _set_layer_overlay_flag(self, layer, value: bool) -> None:
+        if layer is None:
+            return
+        try:
+            layer.is_template_overlay = value
+        except AttributeError:
+            pass
+
     def _next_color(self) -> QColor:
         c = self._palette[self._color_idx % len(self._palette)]
         self._color_idx += 1
@@ -309,6 +317,12 @@ class TemplateController:
         group = TemplateGroupItem(img, tgt, contour_color=color)
         self.scene.addItem(group)
 
+        layer = getattr(img, "layer", None)
+        self._set_layer_overlay_flag(layer, True)
+
+        if layer is not None:
+            group.destroyed.connect(lambda *_: self._set_layer_overlay_flag(layer, False))
+
         # Registrar en panel
         self._register_group_in_panel(group, name=name)
 
@@ -364,6 +378,10 @@ class TemplateController:
         group.setVisible(visible)
 
     def remove_group(self, group: TemplateGroupItem):
+        image = group.image_item() if hasattr(group, "image_item") else None
+        layer = getattr(image, "layer", None)
+        self._set_layer_overlay_flag(layer, False)
+
         # Quita de lista interna
         self._groups = [g for g in self._groups if g.group is not group]
         # Quita de escena
@@ -378,6 +396,12 @@ class TemplateController:
                     rows_to_remove.append(r)
             for r in reversed(rows_to_remove):
                 self.panel_model.removeRow(r)
+
+    def mark_group_as_editable(self, group: TemplateGroupItem) -> None:
+        """Limpia la marca de overlay cuando un grupo vuelve a un ImageItem editable."""
+        image = group.image_item() if hasattr(group, "image_item") else None
+        layer = getattr(image, "layer", None)
+        self._set_layer_overlay_flag(layer, False)
 
     def select_and_center(self, group: TemplateGroupItem):
         """Selecciona el grupo y centra la vista en él (si hay view)."""
