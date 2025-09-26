@@ -112,8 +112,15 @@ class SelectionHandler(QObject):
         return items[0]
     
     def polygon_scene_pose(self, poly_item: ContourItem):
+        if not _is_valid(poly_item) or not isinstance(poly_item, ContourItem):
+            return None
+
         # 1. Obtener vértices en escena
-        pts = [poly_item.mapToScene(p) for p in poly_item.polygon()]
+        polygon = poly_item.polygon()
+        if polygon.isEmpty():
+            return None
+
+        pts = [poly_item.mapToScene(p) for p in polygon]
         arr = np.array([[p.x(), p.y()] for p in pts])
 
         # 2. Centroide
@@ -131,7 +138,6 @@ class SelectionHandler(QObject):
 
         # 5. Resultado
         x, y = centroid
-        print(f"Centroide: ({x:.2f}, {y:.2f}), Ángulo: {angle:.2f}°")
         return x, y, angle
 
 
@@ -139,7 +145,15 @@ class SelectionHandler(QObject):
         it = self.selected_item()
         img_it = it if isinstance(it, ImageItem) else None
         contour = it if isinstance(it, ContourItem) else None
-        x, y, ang = self.polygon_scene_pose(contour)
+        if contour is not None and not _is_valid(contour):
+            contour = None
+
+        pose = self.polygon_scene_pose(contour) if contour else None
+        if pose is not None:
+            x, y, ang = pose
+            print(f"Centroide: ({x:.2f}, {y:.2f}), Ángulo: {ang:.2f}°")
+        else:
+            print("No hay contorno seleccionado; no se calculó la pose del polígono.")
         # Dock: solo con ImageItem
         self.main.props.set_layer(img_it.layer if img_it else None)
 
