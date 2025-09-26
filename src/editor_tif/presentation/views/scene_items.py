@@ -157,6 +157,10 @@ class ImageItem(QGraphicsPixmapItem):
             p: QPointF = self.pos()
             self.layer.x = float(p.x()) / self.mm_to_scene
             self.layer.y = float(p.y()) / self.mm_to_scene
+        elif change == QGraphicsPixmapItem.ItemRotationHasChanged:
+            self.layer.rotation = float(self.rotation())
+        elif change == QGraphicsPixmapItem.ItemScaleHasChanged:
+            self.layer.scale = float(self.scale())
         return super().itemChange(change, value)
 
     # --- rotación con Shift+rueda ---
