@@ -43,6 +43,9 @@ class Layer:
     # Identificador lógico (para copiar/pegar)
     source_id: Optional[str] = None
 
+    # Marcadores internos
+    is_template_overlay: bool = False
+
 
 # =========================
 #   EVENTS
