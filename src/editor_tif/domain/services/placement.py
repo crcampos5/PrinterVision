@@ -60,20 +60,34 @@ def placement_from_template(
     # 2) Offset normalizado (en marco del bbox del contorno base) -> clamp y usar como relación
     off_xn, off_yn = _clamp01_pair(getattr(rule, "offset_norm", (0.5, 0.5)))
 
-    # 3) Rotación final
-    rot = (target.angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
-    angle_rad = math.radians(target.angle_deg % 360.0)
+    # 3) Orientación del contorno (usa vector dirigido si existe)
+    principal_axis = getattr(target, "principal_axis", None)
+    angle_from_axis = None
+    if principal_axis:
+        try:
+            vx = float(principal_axis[0])
+            vy = float(principal_axis[1])
+        except (TypeError, ValueError):
+            vx = vy = 0.0
+        if abs(vx) > 1e-9 or abs(vy) > 1e-9:
+            angle_from_axis = math.degrees(math.atan2(vy, vx)) % 360.0
 
-    # 4) Offset local destino (marco del bbox destino, sin rotar)
+    base_angle_deg = angle_from_axis if angle_from_axis is not None else float(target.angle_deg)
+
+    # 4) Rotación final
+    rot = (base_angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
+    angle_rad = math.radians(base_angle_deg % 360.0)
+
+    # 5) Offset local destino (marco del bbox destino, sin rotar)
     #    (0.5,0.5) significa el centro del bbox -> delta (0,0)
     dx_local = (off_xn - 0.5) * target.width
     dy_local = (off_yn - 0.5) * target.height
 
-    # 5) Convertir delta_local al marco de ESCENA usando la orientación del contorno (angle_deg)
+    # 6) Convertir delta_local al marco de ESCENA usando la orientación del contorno
     dx_scene = math.cos(angle_rad) * dx_local - math.sin(angle_rad) * dy_local
     dy_scene = math.sin(angle_rad) * dx_local + math.cos(angle_rad) * dy_local
 
-    # 6) Posición final del CENTRO del ítem
+    # 7) Posición final del CENTRO del ítem
     tx = target.cx + dx_scene
     ty = target.cy + dy_scene
 

@@ -103,6 +103,29 @@ class ContourDetector:
             approx = cv2.approxPolyDP(cnt, eps, True)
             poly = [(float(p[0][0]), float(p[0][1])) for p in approx]
 
+            principal_axis: Optional[Tuple[float, float]] = None
+            if cnt.shape[0] >= 2:
+                pts = cnt.reshape(-1, 2).astype(np.float32)
+                if pts.shape[0] >= 2:
+                    mean, eigenvectors = cv2.PCACompute(pts, mean=None)
+                    if eigenvectors is not None and eigenvectors.size >= 2:
+                        axis = eigenvectors[0].astype(np.float64)
+                        if mean is not None:
+                            mean_vec = mean[0].astype(np.float64)
+                        else:
+                            mean_vec = np.array([cx, cy], dtype=np.float64)
+                        pts64 = pts.astype(np.float64)
+                        centered = pts64 - mean_vec
+                        projections = centered @ axis
+                        if projections.size > 0:
+                            idx = int(np.argmax(np.abs(projections)))
+                            if projections[idx] < 0:
+                                axis = -axis
+                            norm = float(np.linalg.norm(axis))
+                            if norm > 1e-12:
+                                axis /= norm
+                                principal_axis = (float(axis[0]), float(axis[1]))
+
             contours.append(
                 Contour(
                     cx=float(cx),
@@ -111,6 +134,7 @@ class ContourDetector:
                     height=float(h),
                     angle_deg=angle_norm,
                     polygon=poly if len(poly) >= 3 else None,
+                    principal_axis=principal_axis,
                 )
             )
 

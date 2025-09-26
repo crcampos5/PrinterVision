@@ -39,13 +39,49 @@ class ContourSignature:
     height: float       # alto del bounding box del contorno
     angle_deg: float    # orientación principal del contorno (ej. eje mayor)
     polygon: Optional[List[Tuple[float, float]]] = None
+    principal_axis: Optional[Tuple[float, float]] = None  # vector unitario del eje mayor (orientado)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        polygon = data.get("polygon")
+        if polygon is not None:
+            norm_poly: List[List[float]] = []
+            for p in polygon:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    norm_poly.append([float(p[0]), float(p[1])])
+                elif hasattr(p, "x") and hasattr(p, "y"):
+                    norm_poly.append([float(p.x()), float(p.y())])
+            data["polygon"] = norm_poly if norm_poly else None
+        principal_axis = data.get("principal_axis")
+        if principal_axis is not None:
+            try:
+                data["principal_axis"] = [float(principal_axis[0]), float(principal_axis[1])]
+            except (TypeError, ValueError, IndexError):
+                data["principal_axis"] = None
+        return data
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "ContourSignature":
-        return ContourSignature(**data)
+        parsed: Dict[str, Any] = dict(data)
+        polygon = parsed.get("polygon")
+        if polygon is not None:
+            norm_poly = []
+            for p in polygon:
+                try:
+                    norm_poly.append(tuple(float(coord) for coord in p[:2]))
+                except (TypeError, ValueError):
+                    continue
+            parsed["polygon"] = norm_poly if norm_poly else None
+        principal_axis = parsed.get("principal_axis")
+        if principal_axis is not None:
+            try:
+                parsed["principal_axis"] = (
+                    float(principal_axis[0]),
+                    float(principal_axis[1]),
+                )
+            except (TypeError, ValueError, IndexError):
+                parsed["principal_axis"] = None
+        return ContourSignature(**parsed)
 
 
 @dataclass(frozen=True)
