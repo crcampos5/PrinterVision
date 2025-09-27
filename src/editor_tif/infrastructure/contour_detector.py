@@ -1,6 +1,7 @@
 # src/editor_tif/infrastructure/contour_detector.py
 from __future__ import annotations
 from typing import List, Tuple, Optional
+import math
 import cv2
 import numpy as np
 
@@ -92,7 +93,7 @@ class ContourDetector:
             rect = cv2.minAreaRect(cnt)  # ((cx,cy),(w,h),angle)
             (cx, cy), (w, h), angle = rect
 
-            # Normalización del ángulo como hacías antes
+            # Normalización del ángulo del rectángulo (fallback)
             angle_norm = float(angle)
             if w < h:
                 angle_norm += 90.0
@@ -104,6 +105,7 @@ class ContourDetector:
             poly = [(float(p[0][0]), float(p[0][1])) for p in approx]
 
             principal_axis: Optional[Tuple[float, float]] = None
+            angle_from_pca: Optional[float] = None
             if cnt.shape[0] >= 2:
                 pts = cnt.reshape(-1, 2).astype(np.float32)
                 if pts.shape[0] >= 2:
@@ -124,7 +126,16 @@ class ContourDetector:
                             norm = float(np.linalg.norm(axis))
                             if norm > 1e-12:
                                 axis /= norm
-                                principal_axis = (float(axis[0]), float(axis[1]))
+                                axis_x = float(axis[0])
+                                axis_y = float(axis[1])
+                                principal_axis = (axis_x, axis_y)
+                                angle_from_pca = math.degrees(math.atan2(axis_y, axis_x))
+                                if angle_from_pca < -90.0:
+                                    angle_from_pca += 180.0
+                                elif angle_from_pca >= 90.0:
+                                    angle_from_pca -= 180.0
+
+            angle_final = angle_from_pca if angle_from_pca is not None else angle_norm
 
             contours.append(
                 Contour(
@@ -132,7 +143,7 @@ class ContourDetector:
                     cy=float(cy),
                     width=float(w),
                     height=float(h),
-                    angle_deg=angle_norm,
+                    angle_deg=float(angle_final),
                     polygon=poly if len(poly) >= 3 else None,
                     principal_axis=principal_axis,
                 )
