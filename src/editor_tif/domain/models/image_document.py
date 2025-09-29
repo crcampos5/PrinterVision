@@ -433,7 +433,8 @@ class ImageDocument:
             # Rotación + escala alrededor del centro, con expansión de tamaño para no recortar
             cx, cy = (w / 2.0, h / 2.0)
             print("rotacion: ", layer.rotation)
-            M = cv2.getRotationMatrix2D((cx, cy), layer.rotation, eff_scale)
+            rot_final = -layer.rotation
+            M = cv2.getRotationMatrix2D((cx, cy), rot_final, eff_scale)
 
             # Calcular tamaño expandido
             cos = abs(M[0, 0]); sin = abs(M[0, 1])

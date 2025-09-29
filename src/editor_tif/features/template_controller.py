@@ -202,7 +202,8 @@ class TemplateController:
         dy_scene = ci_scene.y() - cy
 
         # Pasar delta al marco LOCAL DEL CONTORNO (rotando por -angle)
-        direction_angle_deg = _signature_direction_angle_deg(sig)
+        #direction_angle_deg = _signature_direction_angle_deg(sig)
+        direction_angle_deg = sig.angle_deg
         angle_for_offsets_deg = direction_angle_deg if direction_angle_deg is not None else float(sig.angle_deg)
         ang_rad = math.radians(angle_for_offsets_deg)
         cos_a = math.cos(ang_rad)
@@ -223,8 +224,8 @@ class TemplateController:
 
         # Rotación relativa (módulo 360)
         contour_angle_deg = direction_angle_deg if direction_angle_deg is not None else float(sig.angle_deg)
-        rot_off = (float(item.rotation()) - contour_angle_deg) % 360.0
-
+        #rot_off = (float(item.rotation()) - contour_angle_deg) % 360.0
+        rot_off = (float(item.rotation()) - contour_angle_deg)
         # Construir nueva regla (PlacementRule es frozen → no mutar, crear copia)
         if base_rule is None:
             new_rule = PlacementRule(

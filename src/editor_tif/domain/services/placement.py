@@ -61,23 +61,25 @@ def placement_from_template(
     off_xn, off_yn = _clamp01_pair(getattr(rule, "offset_norm", (0.5, 0.5)))
 
     # 3) Orientación del contorno (usa vector dirigido si existe)
-    principal_axis = getattr(target, "principal_axis", None)
-    angle_from_axis = None
-    if principal_axis:
-        try:
-            vx = float(principal_axis[0])
-            vy = float(principal_axis[1])
-        except (TypeError, ValueError):
-            vx = vy = 0.0
-        if abs(vx) > 1e-9 or abs(vy) > 1e-9:
-            angle_from_axis = math.degrees(math.atan2(vy, vx)) % 360.0
-
-    base_angle_deg = angle_from_axis if angle_from_axis is not None else float(target.angle_deg)
+    #principal_axis = getattr(target, "principal_axis", None)
+    #angle_from_axis = None
+    #if principal_axis:
+    #    try:
+    #        vx = float(principal_axis[0])
+    #        vy = float(principal_axis[1])
+    #    except (TypeError, ValueError):
+    #        vx = vy = 0.0
+    #    if abs(vx) > 1e-9 or abs(vy) > 1e-9:
+    #        angle_from_axis = math.degrees(math.atan2(vy, vx)) % 360.0
+#
+    #base_angle_deg = angle_from_axis if angle_from_axis is not None else float(target.angle_deg)
+    base_angle_deg = float(target.angle_deg)
 
     # 4) Rotación final
-    rot = (base_angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
-    angle_rad = math.radians(base_angle_deg % 360.0)
-
+    #rot = (base_angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0))) % 360.0
+    rot = (base_angle_deg + float(getattr(rule, "rotation_offset_deg", 0.0)))
+    #angle_rad = math.radians(base_angle_deg % 360.0)
+    angle_rad = math.radians(base_angle_deg)
     # 5) Offset local destino (marco del bbox destino, sin rotar)
     #    (0.5,0.5) significa el centro del bbox -> delta (0,0)
     dx_local = (off_xn - 0.5) * target.width
