@@ -91,14 +91,8 @@ class ContourDetector:
 
             # BBox rotado del componente
             rect = cv2.minAreaRect(cnt)  # ((cx,cy),(w,h),angle)
-            (cx, cy), (w, h), angle = rect
+            (cx, cy), (w, h), _ = rect
 
-            # Normalización del ángulo del rectángulo (fallback)
-            angle_norm = float(angle)
-            if w < h:
-                angle_norm += 90.0
-                w, h = h, w
-            #print("angle_norm: ", angle_norm)
             # Polígono aproximado (opcional)
             eps = self.approx_epsilon_factor * cv2.arcLength(cnt, True)
             approx = cv2.approxPolyDP(cnt, eps, True)
@@ -130,21 +124,15 @@ class ContourDetector:
                                 axis_y = float(axis[1])
                                 principal_axis = (axis_x, axis_y)
                                 angle_from_pca = math.degrees(math.atan2(axis_y, axis_x))
-                                #print("angle_from_pca: ", angle_from_pca)
-                                #if angle_from_pca < -90.0:
-                                #    angle_from_pca += 180.0
-                                #elif angle_from_pca >= 90.0:
-                                #    angle_from_pca -= 180.0
 
-            angle_final = angle_from_pca if angle_from_pca is not None else angle_norm
-            #print("angle_final: ", angle_final)
+            angle_final = angle_from_pca if angle_from_pca is not None else 0
             contours.append(
                 Contour(
                     cx=float(cx),
                     cy=float(cy),
                     width=float(w),
                     height=float(h),
-                    angle_deg=float(angle_from_pca),
+                    angle_deg=float(angle_final),
                     polygon=poly if len(poly) >= 3 else None,
                     principal_axis=principal_axis,
                 )

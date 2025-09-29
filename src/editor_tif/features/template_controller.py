@@ -37,20 +37,6 @@ from editor_tif.presentation.views.template_items import TemplateGroupItem
 TargetItem = Union[CentroidItem, ContourItem]
 
 
-def _signature_direction_angle_deg(sig: ContourSignature) -> Optional[float]:
-    axis = getattr(sig, "principal_axis", None)
-    if not axis:
-        return None
-    try:
-        vx = float(axis[0])
-        vy = float(axis[1])
-    except (TypeError, ValueError):
-        return None
-    if abs(vx) < 1e-9 and abs(vy) < 1e-9:
-        return None
-    ang = math.degrees(math.atan2(vy, vx))
-    return ang % 360.0
-
 
 @dataclass
 class TemplateRecord:
@@ -101,14 +87,6 @@ class TemplateController:
         self._templates: list[TemplateRecord] = []
         self._groups: list[GroupRecord] = []
 
-        # Paleta contornos de grupo
-        self._palette = [
-            QColor("#FF6B6B"),
-            QColor("#4D96FF"),
-            QColor("#6BCB77"),
-            QColor("#FFD93D"),
-            QColor("#A66CFF"),
-        ]
         self._color_idx = 0
 
     # ---------------------------------------------------------------------
@@ -121,11 +99,6 @@ class TemplateController:
             layer.is_template_overlay = value
         except AttributeError:
             pass
-
-    def _next_color(self) -> QColor:
-        c = self._palette[self._color_idx % len(self._palette)]
-        self._color_idx += 1
-        return c
 
     def _item_size_scene_units(self, item: ImageItem) -> Tuple[float, float]:
         """
@@ -161,7 +134,6 @@ class TemplateController:
         if isinstance(obj, ContourItem):
             sig = getattr(obj, "_sig", None)
             if isinstance(sig, ContourSignature):
-                print("siempre tiene")
                 return sig
 
         return None

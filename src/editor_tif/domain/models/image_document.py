@@ -376,7 +376,7 @@ class ImageDocument:
         """
         drawable_layers = [
             layer for layer in self.layers if not getattr(layer, "is_template_overlay", False)
-        ]
+        ]      
 
         if self._reference_np is None and not drawable_layers:
             raise RuntimeError("No hay referencia ni capas para deducir resolución")
@@ -402,6 +402,8 @@ class ImageDocument:
                 if channels > 1 else np.full((height_px, width_px), white, dtype=dtype))
 
         for layer in drawable_layers:
+            if layer.x == 0.0 and layer.y == 0.0:
+                continue
             img = layer.pixels
             # Normaliza a (H,W,C)
             if img.ndim == 2:
@@ -432,7 +434,6 @@ class ImageDocument:
 
             # Rotación + escala alrededor del centro, con expansión de tamaño para no recortar
             cx, cy = (w / 2.0, h / 2.0)
-            print("rotacion: ", layer.rotation)
             rot_final = -layer.rotation
             M = cv2.getRotationMatrix2D((cx, cy), rot_final, eff_scale)
 
