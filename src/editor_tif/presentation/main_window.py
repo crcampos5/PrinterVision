@@ -4,7 +4,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoStack
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QGraphicsView
 
 from editor_tif.domain.models.image_document import ImageDocument
 from editor_tif.presentation.views.image_viewer import ImageViewer
@@ -107,8 +107,25 @@ class MainWindow(QMainWindow):
         act_delete = QAction("Eliminar", self, shortcut=QKeySequence.Delete, triggered=self.delete_selected)
         act_copy = QAction("Copiar", self, shortcut=QKeySequence.Copy, triggered=self.copy_selected)
         act_paste = QAction("Pegar", self, shortcut=QKeySequence.Paste, triggered=self.paste_from_clipboard)
-        for a in (act_undo, act_redo, act_delete, act_copy, act_paste):
+        act_toggle_drag = QAction(
+            "Alternar pan/selección", self,
+            shortcut=QKeySequence("Shift+Space"),
+            triggered=self._toggle_viewer_drag_mode,
+        )
+        act_toggle_drag.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_toggle_drag.setStatusTip("Alterna entre arrastrar la vista y dibujar un rectángulo de selección")
+
+        for a in (act_undo, act_redo, act_delete, act_copy, act_paste, act_toggle_drag):
             self.addAction(a)
+        self.viewer.addAction(act_toggle_drag)
+
+    def _toggle_viewer_drag_mode(self) -> None:
+        try:
+            mode = self.viewer.toggle_drag_mode()
+        except AttributeError:
+            return
+        cursor = "selección" if mode == QGraphicsView.RubberBandDrag else "paneo"
+        self.statusBar().showMessage(f"Modo de arrastre: {cursor}", 2000)
 
     # ===================== Delegación a MainActions =====================
     def configure_workspace(self): self.actions.configure_workspace()

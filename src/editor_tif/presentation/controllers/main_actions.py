@@ -180,6 +180,11 @@ class MainActions:
         # Sincroniza toolbar y selection handler
         self.toolbar_manager.update_mode(mode)
         self.selection_handler.update_mode(mode)
+        if getattr(self.window, "viewer", None) is not None:
+            try:
+                self.window.viewer.apply_mode_drag(mode)
+            except AttributeError:
+                pass
 
         if mode == EditorMode.Template:
             self._populate_contours_items()

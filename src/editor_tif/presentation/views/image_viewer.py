@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 
+from editor_tif.presentation.modes import EditorMode
+
 
 class ImageViewer(QGraphicsView):
     def __init__(self, parent=None) -> None:
@@ -20,11 +22,44 @@ class ImageViewer(QGraphicsView):
         self.setRenderHints(self.renderHints() |
                             QPainter.Antialiasing |
                             QPainter.SmoothPixmapTransform)
-        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self._current_drag_mode = QGraphicsView.ScrollHandDrag
+        self._active_mode: EditorMode | None = None
+        self._drag_mode_by_mode: dict[EditorMode, QGraphicsView.DragMode] = {
+            EditorMode.CloneByCentroid: QGraphicsView.ScrollHandDrag,
+            EditorMode.Template: QGraphicsView.RubberBandDrag,
+        }
+        self.setDragMode(self._current_drag_mode)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
 
         # Parámetros de zoom
         self._zoom_factor = 1.25   # cuánto aumenta/disminuye por paso
+
+    # ---------- Interacción (pan vs selección) ----------
+    def setDragMode(self, mode: QGraphicsView.DragMode) -> None:  # type: ignore[override]
+        """Guarda el modo actual y delega en QGraphicsView."""
+        self._current_drag_mode = mode
+        super().setDragMode(mode)
+
+    def apply_mode_drag(self, mode: EditorMode) -> None:
+        """Define el modo activo y aplica la preferencia correspondiente."""
+        self._active_mode = mode
+        preferred = self._drag_mode_by_mode.get(mode, self._current_drag_mode)
+        self.setDragMode(preferred)
+
+    def toggle_drag_mode(self) -> QGraphicsView.DragMode:
+        """Alterna entre pan (ScrollHandDrag) y selección (RubberBandDrag)."""
+        next_mode = (
+            QGraphicsView.RubberBandDrag
+            if self._current_drag_mode == QGraphicsView.ScrollHandDrag
+            else QGraphicsView.ScrollHandDrag
+        )
+        self.setDragMode(next_mode)
+        if self._active_mode is not None:
+            self._drag_mode_by_mode[self._active_mode] = next_mode
+        return next_mode
+
+    def current_drag_mode(self) -> QGraphicsView.DragMode:
+        return self._current_drag_mode
 
     # ---------- Compatibilidad con código antiguo ----------
     def set_pixmap(self, pixmap):

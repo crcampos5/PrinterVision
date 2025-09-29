@@ -127,12 +127,16 @@ class ToolbarManager(QToolBar):
 
         self.act_mode_centroid = QAction(_icon("target.svg"), "Centroide", self, checkable=True)
         self.act_mode_centroid.setShortcut(QKeySequence("Alt+1"))
-        self.act_mode_centroid.setStatusTip("Modo de clonado por centroides")
+        self.act_mode_centroid.setStatusTip(
+            "Modo de clonado por centroides (Shift+Space alterna pan/selección rectangular)"
+        )
         self.mode_group.addAction(self.act_mode_centroid)
 
         self.act_mode_template = QAction(_icon("template.svg"), "Plantilla", self, checkable=True)
         self.act_mode_template.setShortcut(QKeySequence("Alt+2"))
-        self.act_mode_template.setStatusTip("Modo de creación/aplicación de plantillas")
+        self.act_mode_template.setStatusTip(
+            "Modo de creación/aplicación de plantillas (Shift+Space alterna pan/selección rectangular)"
+        )
         self.mode_group.addAction(self.act_mode_template)
 
         # Arrancamos en Centroide
