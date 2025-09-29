@@ -3,8 +3,8 @@
 from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPixmapItem
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QPainter, QMouseEvent
 
 from editor_tif.presentation.modes import EditorMode
 
@@ -28,6 +28,7 @@ class ImageViewer(QGraphicsView):
             EditorMode.CloneByCentroid: QGraphicsView.ScrollHandDrag,
             EditorMode.Template: QGraphicsView.RubberBandDrag,
         }
+        self._middle_pan_previous_drag_mode: QGraphicsView.DragMode | None = None
         self.setDragMode(self._current_drag_mode)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
 
@@ -60,6 +61,42 @@ class ImageViewer(QGraphicsView):
 
     def current_drag_mode(self) -> QGraphicsView.DragMode:
         return self._current_drag_mode
+
+    def mousePressEvent(self, event):  # type: ignore[override]
+        if event.button() == Qt.MiddleButton:
+            self._middle_pan_previous_drag_mode = self._current_drag_mode
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            fake_event = QMouseEvent(
+                QEvent.MouseButtonPress,
+                event.position(),
+                event.globalPosition(),
+                Qt.LeftButton,
+                Qt.LeftButton,
+                event.modifiers(),
+            )
+            super().mousePressEvent(fake_event)
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):  # type: ignore[override]
+        if event.button() == Qt.MiddleButton and self._middle_pan_previous_drag_mode is not None:
+            fake_event = QMouseEvent(
+                QEvent.MouseButtonRelease,
+                event.position(),
+                event.globalPosition(),
+                Qt.LeftButton,
+                Qt.NoButton,
+                event.modifiers(),
+            )
+            super().mouseReleaseEvent(fake_event)
+            self.setDragMode(self._middle_pan_previous_drag_mode)
+            self._middle_pan_previous_drag_mode = None
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
 
     # ---------- Compatibilidad con código antiguo ----------
     def set_pixmap(self, pixmap):
