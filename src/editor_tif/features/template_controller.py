@@ -116,8 +116,11 @@ class TemplateController:
         return br.width() * self.mm_to_scene, br.height() * self.mm_to_scene
 
     def _item_center_in_scene(self, item: ImageItem) -> QPointF:
-        """Centro exacto del item en COORDENADAS DE ESCENA (respeta offset/rotación/escala)."""
-        return item.mapToScene(item.boundingRect().center())
+        """Pivote del ítem (origen local) en COORDENADAS DE ESCENA."""
+        try:
+            return item.mapToScene(QPointF(0.0, 0.0))
+        except Exception:
+            return item.mapToScene(item.boundingRect().center())
 
     def as_contour_signature(self, obj: TargetItem) -> Optional[ContourSignature]:
         """

@@ -89,18 +89,34 @@ def apply_placement_to_item(
     placement: Placement,
 ) -> None:
     """
-    Aplica Placement a un ImageItem asumiendo que (tx,ty) es el CENTRO del ítem.
-    - Pivote: centro del boundingRect.
-    - Offset: (-w/2, -h/2) para que setPos() sitúe el centro del ítem en (tx,ty).
+    Aplica Placement a un ImageItem respetando el pivote del contorno detectado.
+    - El pivote en escena (placement.piv_x, placement.piv_y) se mapea al marco local
+      del ítem y se usa como origen de transformación.
+    - El offset local se ajusta para que setPos(tx, ty) sitúe dicho pivote sobre el
+      centroide objetivo.
     - Sin escalado (1.0).
     """
     br = item.boundingRect()
 
-    # Pivot al centro del rect local
-    item.setTransformOriginPoint(br.center())
+    pivot_scene = QPointF(float(getattr(placement, "piv_x", placement.tx)),
+                          float(getattr(placement, "piv_y", placement.ty)))
 
-    # Colocar el origen local en la esquina sup-izq del rect y POSicionar el CENTRO en (tx,ty)
-    item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
+    current_offset = item.offset()
+
+    try:
+        pivot_local = item.mapFromScene(pivot_scene)
+        pivot_relative = pivot_local - current_offset
+        if not (math.isfinite(pivot_relative.x()) and math.isfinite(pivot_relative.y())):
+            raise ValueError("invalid pivot coordinates")
+    except Exception:
+        center_local = br.center()
+        pivot_relative = center_local - current_offset
+
+    # Ajustar el origen local del pixmap para que el pivote quede en (0,0)
+    item.setOffset(-pivot_relative.x(), -pivot_relative.y())
+
+    # Con el pivote en (0,0), usarlo como origen de transformaciones
+    item.setTransformOriginPoint(QPointF(0.0, 0.0))
 
     # Sincronizar layer <-> item para que doc.save utilice la pose real
     layer = getattr(item, "layer", None)
