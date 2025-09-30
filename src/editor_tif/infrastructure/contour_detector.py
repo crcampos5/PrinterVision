@@ -58,15 +58,11 @@ class ContourDetector:
         num_labels, labels, stats, centroids_arr = cv2.connectedComponentsWithStats(thresh)
 
         # Recolecta centroides filtrados por área (igual que detection.py)
-        centroids: List[Centroid] = []
         valid_labels: List[int] = []
         for idx in range(1, num_labels):
             area = float(stats[idx, cv2.CC_STAT_AREA])
             if area < self.min_area:
                 continue
-            cx = float(centroids_arr[idx][0])
-            cy = float(centroids_arr[idx][1])
-            centroids.append(Centroid(x=cx, y=cy))
             valid_labels.append(idx)
 
         # Si no hay componentes válidos, salimos temprano
@@ -75,6 +71,7 @@ class ContourDetector:
 
         # === 2) Contornos por componente (coherentes con los centroides anteriores) ===
         contours: List[Contour] = []
+        centroids: List[Centroid] = []
         for idx in valid_labels:
             # Máscara binaria del label actual
             mask = (labels == idx).astype(np.uint8) * 255
@@ -126,10 +123,12 @@ class ContourDetector:
                                 angle_from_pca = math.degrees(math.atan2(axis_y, axis_x))
 
             angle_final = angle_from_pca if angle_from_pca is not None else 0
+            cx_f = float(cx)
+            cy_f = float(cy)
             contours.append(
                 Contour(
-                    cx=float(cx),
-                    cy=float(cy),
+                    cx=cx_f,
+                    cy=cy_f,
                     width=float(w),
                     height=float(h),
                     angle_deg=float(angle_final),
@@ -137,5 +136,6 @@ class ContourDetector:
                     principal_axis=principal_axis,
                 )
             )
+            centroids.append(Centroid(x=cx_f, y=cy_f))
 
         return contours, centroids
