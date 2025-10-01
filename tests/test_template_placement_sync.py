@@ -23,6 +23,7 @@ from editor_tif.domain.models.template import (
 )
 from editor_tif.domain.services.placement import (
     apply_placement_to_item,
+    get_item_min_area_rect,
     placement_from_template,
 )
 from editor_tif.presentation.views.scene_items import ImageItem, Layer
@@ -58,14 +59,18 @@ def test_apply_placement_updates_layer_and_commits(qt_app):
     emissions: list = []
     item.events.committed.connect(lambda payload: emissions.append(payload))
 
+    rect = get_item_min_area_rect(item, min_area=1.0)
+    assert rect is not None
+    (piv_x, piv_y), _, _ = rect
+
     placement = Placement(
         tx=40.0,
         ty=60.0,
         rotation_deg=30.0,
         scale_x=1.25,
         scale_y=1.20,
-        piv_x=0.0,
-        piv_y=0.0,
+        piv_x=piv_x,
+        piv_y=piv_y,
     )
 
     apply_placement_to_item(item, placement)
