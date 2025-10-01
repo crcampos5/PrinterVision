@@ -114,6 +114,17 @@ def qimage_to_numpy(image: QImage) -> np.ndarray:
     image = image.convertToFormat(QImage.Format_RGBA8888)
     w, h = image.width(), image.height()
     ptr = image.bits()
-    ptr.setsize(image.sizeInBytes())
-    arr = np.array(ptr, dtype=np.uint8).reshape(h, w, 4)
+    size = image.sizeInBytes()
+
+    if hasattr(ptr, "setsize"):
+        ptr.setsize(size)
+        buffer = np.asarray(ptr, dtype=np.uint8)
+    else:
+        mv = memoryview(ptr)
+        if mv.nbytes < size:
+            raise ValueError("QImage buffer is smaller than expected")
+        # NumPy expects a 1-D buffer when reading raw bytes.
+        buffer = np.frombuffer(mv, dtype=np.uint8, count=size)
+
+    arr = buffer.reshape(h, w, 4)
     return arr.copy()
