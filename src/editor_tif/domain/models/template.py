@@ -133,13 +133,33 @@ class Placement:
     scale_y: float
     piv_x: float
     piv_y: float
+    matrix: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        return data
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "Placement":
-        return Placement(**data)
+        matrix = data.get("matrix")
+        if matrix is not None:
+            try:
+                matrix = (
+                    (float(matrix[0][0]), float(matrix[0][1]), float(matrix[0][2])),
+                    (float(matrix[1][0]), float(matrix[1][1]), float(matrix[1][2])),
+                )
+            except (TypeError, ValueError, IndexError):
+                matrix = None
+        return Placement(
+            tx=float(data["tx"]),
+            ty=float(data["ty"]),
+            rotation_deg=float(data["rotation_deg"]),
+            scale_x=float(data["scale_x"]),
+            scale_y=float(data["scale_y"]),
+            piv_x=float(data["piv_x"]),
+            piv_y=float(data["piv_y"]),
+            matrix=matrix,
+        )
 
 
 @dataclass

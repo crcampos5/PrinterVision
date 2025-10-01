@@ -36,6 +36,8 @@ class Layer:
     scale: float = 1.0
     opacity: float = 1.0
 
+    transform_matrix: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None
+
     # Dimensiones físicas (si aplica)
     width_mm: Optional[float] = None
     height_mm: Optional[float] = None
@@ -138,21 +140,41 @@ class ImageItem(QGraphicsPixmapItem):
 
     # --- sync layer -> item ---
     def sync_from_layer(self) -> None:
-        self.setPos(self.layer.x * self.mm_to_scene, self.layer.y * self.mm_to_scene)
+        matrix = getattr(self.layer, "transform_matrix", None)
+
+        if matrix is not None:
+            try:
+                a, b, tx = matrix[0]
+                c, d, ty = matrix[1]
+                t = QTransform(float(a), float(c), 0.0, float(b), float(d), 0.0, float(tx), float(ty), 1.0)
+                self.setTransformOriginPoint(QPointF(0.0, 0.0))
+                self.setPos(0.0, 0.0)
+                self.setTransform(t, False)
+            except (TypeError, ValueError, IndexError):
+                try:
+                    self.layer.transform_matrix = None
+                except AttributeError:
+                    pass
+                matrix = None
+
+        if matrix is None:
+            self.setTransformOriginPoint(self.boundingRect().center())
+            self.setPos(self.layer.x * self.mm_to_scene, self.layer.y * self.mm_to_scene)
+            t = QTransform()
+            rot = float(getattr(self.layer, "rotation", 0.0))
+            if rot:
+                t.rotate(rot)
+            mpp = self._layer_mpp()
+            if mpp is not None:
+                sx_base = mpp[0] * self.mm_to_scene
+                sy_base = mpp[1] * self.mm_to_scene
+            else:
+                sx_base = sy_base = 1.0
+            s_user = float(getattr(self.layer, "scale", 1.0))
+            t.scale(sx_base * s_user, sy_base * s_user)
+            self.setTransform(t, False)
+
         self.setOpacity(self.layer.opacity)
-        t = QTransform()
-        rot = float(getattr(self.layer, "rotation", 0.0))
-        if rot:
-            t.rotate(rot)
-        mpp = self._layer_mpp()
-        if mpp is not None:
-            sx_base = mpp[0] * self.mm_to_scene
-            sy_base = mpp[1] * self.mm_to_scene
-        else:
-            sx_base = sy_base = 1.0
-        s_user = float(getattr(self.layer, "scale", 1.0))
-        t.scale(sx_base * s_user, sy_base * s_user)
-        self.setTransform(t, False)
 
     # --- sync item -> layer (cuando se mueve en escena) ---
     def itemChange(self, change, value):

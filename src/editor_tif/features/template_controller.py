@@ -29,6 +29,7 @@ from editor_tif.domain.models.template import (
 from editor_tif.domain.services.placement import (
     placement_from_template,
     apply_placement_to_item,
+    get_item_min_area_rect_local_vertices,
 )
 
 # Grupo visual (overlay de plantilla)
@@ -240,12 +241,18 @@ class TemplateController:
         # Tamaño original del ítem en unidades de escena (sólo informativo)
         iw_scene, ih_scene = self._item_size_scene_units(source_item)
 
+        rect_meta = get_item_min_area_rect_local_vertices(source_item)
+
+        meta = {"created_from": "controller.create_template"}
+        if rect_meta is not None:
+            meta["item_min_area_rect"] = rect_meta
+
         tpl = Template(
             item_source_id=source_item.source_id,
             item_original_size=(iw_scene, ih_scene),
             base_contour=base_signature,
             rule=measured_rule,
-            meta={"created_from": "controller.create_template"},
+            meta=meta,
         )
         self._templates.append(TemplateRecord(template=tpl, name=name))
         return tpl
