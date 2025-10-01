@@ -24,6 +24,7 @@ from editor_tif.domain.models.template import (
 from editor_tif.domain.services.placement import (
     apply_placement_to_item,
     get_item_min_area_rect,
+    get_signature_box_vertices,
     placement_from_template,
 )
 from editor_tif.presentation.views.scene_items import ImageItem, Layer
@@ -136,3 +137,34 @@ def test_placement_from_template_aligns_principal_axis():
     expected_tx = target_signature.cx + (target_signature.width * 0.5)
     assert placement.tx == pytest.approx(expected_tx)
     assert placement.ty == pytest.approx(target_signature.cy)
+
+
+def test_template_serialization_preserves_box_vertices():
+    box_vertices = [(1.0, 2.0), (3.5, 4.5), (5.0, 6.5), (0.5, 5.5)]
+    signature = ContourSignature(
+        cx=10.0,
+        cy=20.0,
+        width=30.0,
+        height=40.0,
+        angle_deg=15.0,
+        polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)],
+        box_vertices=box_vertices,
+        principal_axis=(1.0, 0.0),
+    )
+
+    template = Template(
+        item_source_id="dummy-source",
+        item_original_size=(100.0, 50.0),
+        base_contour=signature,
+        rule=PlacementRule(),
+    )
+
+    serialized = template.to_dict()
+    assert "box_vertices" in serialized["base_contour"]
+    assert serialized["base_contour"]["box_vertices"] == [[1.0, 2.0], [3.5, 4.5], [5.0, 6.5], [0.5, 5.5]]
+
+    restored = Template.from_dict(serialized)
+    assert restored.base_contour.box_vertices == box_vertices
+
+    ordered = get_signature_box_vertices(restored.base_contour)
+    assert ordered[:4] == box_vertices

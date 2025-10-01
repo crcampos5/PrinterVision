@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Iterable, List
 
 import numpy as np
 from PySide6.QtCore import Qt, QPointF, QObject, Signal, QRectF
@@ -221,6 +221,7 @@ class CentroidItem(QGraphicsEllipseItem):
         self._bbox_h: float = float(bbox_height)
         self._angle_deg: float = float(angle_deg)
         self._principal_axis: Optional[Tuple[float, float]] = None
+        self._box_vertices: Optional[List[Tuple[float, float]]] = None
 
     # ---- Helpers geométricos ----
     def center_scene_pos(self) -> QPointF:
@@ -234,6 +235,7 @@ class CentroidItem(QGraphicsEllipseItem):
         bbox_height: float,
         angle_deg: float,
         principal_axis: Optional[Tuple[float, float]] = None,
+        box_vertices: Optional[Iterable[Tuple[float, float]]] = None,
     ) -> None:
         """Actualiza ancho/alto del bbox y ángulo del contorno asociado."""
         self._bbox_w = float(bbox_width)
@@ -243,6 +245,16 @@ class CentroidItem(QGraphicsEllipseItem):
             self._principal_axis = None
         else:
             self._principal_axis = (float(principal_axis[0]), float(principal_axis[1]))
+        if box_vertices is None:
+            self._box_vertices = None
+        else:
+            norm: List[Tuple[float, float]] = []
+            for p in box_vertices:
+                try:
+                    norm.append((float(p[0]), float(p[1])))
+                except (TypeError, ValueError, IndexError):
+                    continue
+            self._box_vertices = norm if norm else None
 
     def get_signature(self) -> Tuple[float, float, float, Optional[Tuple[float, float]]]:
         """Obtiene (bbox_width, bbox_height, angle_deg, principal_axis)."""
@@ -263,6 +275,7 @@ class CentroidItem(QGraphicsEllipseItem):
             height=self._bbox_h,
             angle_deg=self._angle_deg,
             principal_axis=self._principal_axis,
+            box_vertices=self._box_vertices,
         )
 
 
@@ -288,6 +301,17 @@ class ContourItem(QGraphicsPolygonItem):
         self._sig = sig
 
         # 1) Intentar dibujar el polígono real
+        pts = getattr(sig, "box_vertices", None)
+        if pts and len(pts) >= 4:
+            qpts = []
+            for p in pts:
+                if hasattr(p, "x"):
+                    qpts.append(QPointF(float(p.x()), float(p.y())))
+                else:
+                    qpts.append(QPointF(float(p[0]), float(p[1])))
+            self.setPolygon(QPolygonF(qpts))
+            return
+
         pts = getattr(sig, "polygon", None)
         if pts and len(pts) >= 3:
             # pts puede venir como [(x,y), ...] o [QPointF,...]
@@ -327,5 +351,11 @@ class ContourItem(QGraphicsPolygonItem):
             # bbox axis-aligned
             br = poly.boundingRect()
             cx, cy = br.center().x(), br.center().y()
-            return ContourSignature(cx, cy, br.width(), br.height(), 0.0)
+            pts = [(poly[i].x(), poly[i].y()) for i in range(poly.count())]
+            box = pts[:4] if len(pts) >= 4 else None
+            return ContourSignature(
+                cx, cy, br.width(), br.height(), 0.0,
+                polygon=pts if pts else None,
+                box_vertices=box,
+            )
         return self._sig

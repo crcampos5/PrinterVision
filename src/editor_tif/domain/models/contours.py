@@ -15,4 +15,5 @@ class Contour:
     height: float     # alto del bbox (px)
     angle_deg: float  # ángulo principal (grados, antihorario)
     polygon: Optional[List[Tuple[float, float]]] = None  # opcional: lista de puntos (px)
+    box_vertices: Optional[List[Tuple[float, float]]] = None  # vertices del bbox rotado (px)
     principal_axis: Optional[Tuple[float, float]] = None  # vector unitario del eje mayor (px)

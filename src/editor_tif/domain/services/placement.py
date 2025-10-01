@@ -30,6 +30,51 @@ from editor_tif.domain.models.template import (
 Centroid = Tuple[float, float]
 
 
+def _normalize_points(points) -> List[Tuple[float, float]]:
+    norm: List[Tuple[float, float]] = []
+    for p in points:
+        try:
+            if hasattr(p, "x") and hasattr(p, "y"):
+                norm.append((float(p.x()), float(p.y())))
+            else:
+                norm.append((float(p[0]), float(p[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return norm
+
+
+def get_signature_box_vertices(signature: ContourSignature) -> List[Tuple[float, float]]:
+    """Devuelve los vértices preferidos para el bbox del contorno."""
+
+    box_vertices = getattr(signature, "box_vertices", None)
+    if box_vertices:
+        pts = _normalize_points(box_vertices)
+        if len(pts) >= 4:
+            return pts
+
+    polygon = getattr(signature, "polygon", None)
+    if polygon:
+        pts = _normalize_points(polygon)
+        if pts:
+            return pts
+
+    cx = float(signature.cx)
+    cy = float(signature.cy)
+    w = float(signature.width)
+    h = float(signature.height)
+    hw, hh = w * 0.5, h * 0.5
+    angle = math.radians(float(signature.angle_deg))
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    base = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+    rotated: List[Tuple[float, float]] = []
+    for x, y in base:
+        rx = cos_a * x - sin_a * y + cx
+        ry = sin_a * x + cos_a * y + cy
+        rotated.append((rx, ry))
+    return rotated
+
+
 # =========================================================
 # Colocación desde PLANTILLA (sin escalado, centro como ancla)
 # =========================================================

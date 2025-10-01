@@ -90,6 +90,28 @@ class ContourDetector:
             rect = cv2.minAreaRect(cnt)  # ((cx,cy),(w,h),angle)
             (cx, cy), (w, h), _ = rect
 
+            box_vertices: Optional[List[Tuple[float, float]]] = None
+            try:
+                raw_box = cv2.boxPoints(rect)
+                box_arr = np.asarray(raw_box, dtype=np.float64)
+                if box_arr.shape[0] == 4:
+                    order_idx = np.lexsort((box_arr[:, 0], box_arr[:, 1]))
+                    ordered = box_arr[order_idx]
+                    top = ordered[:2]
+                    bottom = ordered[2:]
+                    top = top[np.argsort(top[:, 0])]
+                    bottom = bottom[np.argsort(bottom[:, 0])]
+                    tl, tr = top[0], top[1]
+                    bl, br = bottom[0], bottom[1]
+                    box_vertices = [
+                        (float(tl[0]), float(tl[1])),
+                        (float(tr[0]), float(tr[1])),
+                        (float(br[0]), float(br[1])),
+                        (float(bl[0]), float(bl[1])),
+                    ]
+            except Exception:
+                box_vertices = None
+
             # Polígono aproximado (opcional)
             eps = self.approx_epsilon_factor * cv2.arcLength(cnt, True)
             approx = cv2.approxPolyDP(cnt, eps, True)
@@ -133,6 +155,7 @@ class ContourDetector:
                     height=float(h),
                     angle_deg=float(angle_final),
                     polygon=poly if len(poly) >= 3 else None,
+                    box_vertices=box_vertices,
                     principal_axis=principal_axis,
                 )
             )

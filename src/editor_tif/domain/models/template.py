@@ -39,6 +39,7 @@ class ContourSignature:
     height: float       # alto del bounding box del contorno
     angle_deg: float    # orientación principal del contorno (ej. eje mayor)
     polygon: Optional[List[Tuple[float, float]]] = None
+    box_vertices: Optional[List[Tuple[float, float]]] = None
     principal_axis: Optional[Tuple[float, float]] = None  # vector unitario del eje mayor (orientado)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -58,6 +59,15 @@ class ContourSignature:
                 data["principal_axis"] = [float(principal_axis[0]), float(principal_axis[1])]
             except (TypeError, ValueError, IndexError):
                 data["principal_axis"] = None
+        box_vertices = data.get("box_vertices")
+        if box_vertices is not None:
+            norm_box: List[List[float]] = []
+            for p in box_vertices:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    norm_box.append([float(p[0]), float(p[1])])
+                elif hasattr(p, "x") and hasattr(p, "y"):
+                    norm_box.append([float(p.x()), float(p.y())])
+            data["box_vertices"] = norm_box if norm_box else None
         return data
 
     @staticmethod
@@ -81,6 +91,15 @@ class ContourSignature:
                 )
             except (TypeError, ValueError, IndexError):
                 parsed["principal_axis"] = None
+        box_vertices = parsed.get("box_vertices")
+        if box_vertices is not None:
+            norm_box = []
+            for p in box_vertices:
+                try:
+                    norm_box.append(tuple(float(coord) for coord in p[:2]))
+                except (TypeError, ValueError):
+                    continue
+            parsed["box_vertices"] = norm_box if norm_box else None
         return ContourSignature(**parsed)
 
 

@@ -428,6 +428,15 @@ class MainActions:
                         for (x, y) in ct.polygon
                     ]
 
+                box_scene = None
+                if getattr(ct, "box_vertices", None):
+                    mapped = []
+                    for x, y in ct.box_vertices:
+                        p = self._bg_item.mapToScene(QPointF(float(x), float(y)))
+                        mapped.append((float(p.x()), float(p.y())))
+                    if mapped:
+                        box_scene = mapped
+
                 principal_axis = None
                 if getattr(ct, "principal_axis", None):
                     ax, ay = ct.principal_axis
@@ -444,6 +453,7 @@ class MainActions:
                     height=h_scene,
                     angle_deg=float(ct.angle_deg),
                     polygon=poly_scene,
+                    box_vertices=box_scene,
                     principal_axis=principal_axis,
                 )
                 item = ContourItem()
