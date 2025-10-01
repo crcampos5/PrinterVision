@@ -16,3 +16,4 @@ class Contour:
     angle_deg: float  # ángulo principal (grados, antihorario)
     polygon: Optional[List[Tuple[float, float]]] = None  # opcional: lista de puntos (px)
     principal_axis: Optional[Tuple[float, float]] = None  # vector unitario del eje mayor (px)
+    min_rect_vertices: Optional[List[Tuple[float, float]]] = None  # vértices del minAreaRect (px)

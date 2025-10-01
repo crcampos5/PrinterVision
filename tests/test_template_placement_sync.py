@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 pytest.importorskip("PySide6.QtCore")
 pytest.importorskip("PySide6.QtGui")
 pytest.importorskip("PySide6.QtWidgets")
+cv2 = pytest.importorskip("cv2")
 
 from PySide6.QtWidgets import QApplication, QGraphicsScene
 from PySide6.QtCore import QPointF
@@ -24,9 +25,11 @@ from editor_tif.domain.models.template import (
 from editor_tif.domain.services.placement import (
     apply_placement_to_item,
     get_item_min_area_rect,
+    get_signature_box_vertices,
     placement_from_template,
 )
-from editor_tif.presentation.views.scene_items import ImageItem, Layer
+from editor_tif.presentation.views.scene_items import ImageItem, Layer, ContourItem
+from editor_tif.infrastructure.contour_detector import ContourDetector
 
 
 class _DummyDocument:
@@ -136,3 +139,52 @@ def test_placement_from_template_aligns_principal_axis():
     expected_tx = target_signature.cx + (target_signature.width * 0.5)
     assert placement.tx == pytest.approx(expected_tx)
     assert placement.ty == pytest.approx(target_signature.cy)
+
+
+def _sort_vertices(vertices):
+    arr = np.array(vertices, dtype=np.float32)
+    if arr.shape[0] == 0:
+        return arr
+    order = np.lexsort((arr[:, 0], arr[:, 1]))
+    return arr[order]
+
+
+def test_min_rect_vertices_flow_detector_to_placement(qt_app):
+    image = np.zeros((120, 120), dtype=np.uint8)
+    rect = ((60.0, 60.0), (50.0, 30.0), 25.0)
+    rect_pts = cv2.boxPoints(rect).astype(np.int32)
+    cv2.fillConvexPoly(image, rect_pts, 255)
+
+    detector = ContourDetector(min_area=20.0)
+    contours, _ = detector.detect(image)
+    assert contours, "No se detectaron contornos"
+    contour = contours[0]
+
+    assert contour.min_rect_vertices is not None
+    assert len(contour.min_rect_vertices) >= 4
+
+    expected_sorted = _sort_vertices(cv2.boxPoints(rect))
+    detected_sorted = _sort_vertices(contour.min_rect_vertices)
+    assert detected_sorted.shape == expected_sorted.shape
+    assert np.allclose(detected_sorted, expected_sorted, atol=1.5)
+
+    signature = ContourSignature(
+        cx=float(contour.cx),
+        cy=float(contour.cy),
+        width=float(contour.width),
+        height=float(contour.height),
+        angle_deg=float(contour.angle_deg),
+        min_rect_vertices=[(float(x), float(y)) for x, y in contour.min_rect_vertices],
+    )
+
+    dst_vertices = get_signature_box_vertices(signature)
+    dst_sorted = _sort_vertices(dst_vertices)
+    assert np.allclose(dst_sorted, expected_sorted, atol=1.5)
+
+    item = ContourItem()
+    item.set_from_signature(signature)
+    poly = item.polygon()
+    assert poly.size() >= 4
+    poly_vertices = [(poly[i].x(), poly[i].y()) for i in range(min(4, poly.size()))]
+    poly_sorted = _sort_vertices(poly_vertices)
+    assert np.allclose(poly_sorted, expected_sorted, atol=1.5)

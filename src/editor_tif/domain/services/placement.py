@@ -145,7 +145,17 @@ def get_item_min_area_rect_local_vertices(
 def get_signature_box_vertices(signature: ContourSignature) -> List[Tuple[float, float]]:
     """Devuelve los vértices ordenados (TL,TR,BR,BL) del rect destino en escena."""
 
-    if signature.polygon:
+    rect_vertices = getattr(signature, "min_rect_vertices", None)
+    box = None
+    if rect_vertices:
+        try:
+            pts = np.array(rect_vertices, dtype=np.float32)
+            if pts.shape[0] >= 4:
+                box = pts[:4]
+        except (TypeError, ValueError):
+            box = None
+
+    if box is None and signature.polygon:
         try:
             pts = np.array(signature.polygon, dtype=np.float32)
             if pts.ndim == 2:
@@ -154,8 +164,6 @@ def get_signature_box_vertices(signature: ContourSignature) -> List[Tuple[float,
             box = cv2.boxPoints(rect)
         except (cv2.error, ValueError, TypeError):
             box = None
-    else:
-        box = None
 
     if box is None:
         rect = ((float(signature.cx), float(signature.cy)), (float(signature.width), float(signature.height)), float(signature.angle_deg))
