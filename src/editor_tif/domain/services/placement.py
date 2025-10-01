@@ -97,6 +97,8 @@ def apply_placement_to_item(
     - Sin escalado (1.0).
     """
     br = item.boundingRect()
+    #item.setTransformOriginPoint(br.center())
+    #item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
 
     pivot_scene = QPointF(float(getattr(placement, "piv_x", placement.tx)),
                           float(getattr(placement, "piv_y", placement.ty)))
