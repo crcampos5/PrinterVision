@@ -40,6 +40,7 @@ class ContourSignature:
     angle_deg: float    # orientación principal del contorno (ej. eje mayor)
     polygon: Optional[List[Tuple[float, float]]] = None
     principal_axis: Optional[Tuple[float, float]] = None  # vector unitario del eje mayor (orientado)
+    min_rect_vertices: Optional[List[Tuple[float, float]]] = None  # vértices del minAreaRect (coordenadas de escena)
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -58,6 +59,15 @@ class ContourSignature:
                 data["principal_axis"] = [float(principal_axis[0]), float(principal_axis[1])]
             except (TypeError, ValueError, IndexError):
                 data["principal_axis"] = None
+        min_rect_vertices = data.get("min_rect_vertices")
+        if min_rect_vertices is not None:
+            norm_rect: List[List[float]] = []
+            for p in min_rect_vertices:
+                if hasattr(p, "x") and hasattr(p, "y"):
+                    norm_rect.append([float(p.x()), float(p.y())])
+                elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                    norm_rect.append([float(p[0]), float(p[1])])
+            data["min_rect_vertices"] = norm_rect if norm_rect else None
         return data
 
     @staticmethod
@@ -81,6 +91,15 @@ class ContourSignature:
                 )
             except (TypeError, ValueError, IndexError):
                 parsed["principal_axis"] = None
+        rect_vertices = parsed.get("min_rect_vertices")
+        if rect_vertices is not None:
+            norm_rect_vertices = []
+            for p in rect_vertices:
+                try:
+                    norm_rect_vertices.append(tuple(float(coord) for coord in p[:2]))
+                except (TypeError, ValueError):
+                    continue
+            parsed["min_rect_vertices"] = norm_rect_vertices if norm_rect_vertices else None
         return ContourSignature(**parsed)
 
 

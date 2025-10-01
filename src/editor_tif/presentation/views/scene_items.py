@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
+import math
 
 import numpy as np
 from PySide6.QtCore import Qt, QPointF, QObject, Signal, QRectF
@@ -278,6 +279,24 @@ class CentroidItem(QGraphicsEllipseItem):
         - width, height, angle_deg: desde su firma local (_bbox_w/_bbox_h/_angle_deg)
         """
         pos = self.center_scene_pos()
+        half_w = self._bbox_w * 0.5
+        half_h = self._bbox_h * 0.5
+        angle_rad = math.radians(self._angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        local_vertices = [
+            (-half_w, -half_h),
+            (half_w, -half_h),
+            (half_w, half_h),
+            (-half_w, half_h),
+        ]
+        rect_vertices = [
+            (
+                float(pos.x()) + cos_a * vx - sin_a * vy,
+                float(pos.y()) + sin_a * vx + cos_a * vy,
+            )
+            for vx, vy in local_vertices
+        ]
         return ContourSignature(
             cx=float(pos.x()),
             cy=float(pos.y()),
@@ -285,6 +304,7 @@ class CentroidItem(QGraphicsEllipseItem):
             height=self._bbox_h,
             angle_deg=self._angle_deg,
             principal_axis=self._principal_axis,
+            min_rect_vertices=rect_vertices,
         )
 
 
@@ -322,7 +342,22 @@ class ContourItem(QGraphicsPolygonItem):
             self.setPolygon(QPolygonF(qpts))
             return
 
-        # 2) Fallback: rectángulo por firma (w,h,angle,cx,cy)
+        # 2) Intentar dibujar usando los vértices del rectángulo mínimo
+        rect_vertices = getattr(sig, "min_rect_vertices", None)
+        if rect_vertices and len(rect_vertices) >= 4:
+            qpts = []
+            for p in rect_vertices[:4]:
+                if hasattr(p, "x") and hasattr(p, "y"):
+                    qpts.append(QPointF(float(p.x()), float(p.y())))
+                elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                    qpts.append(QPointF(float(p[0]), float(p[1])))
+            if qpts:
+                poly = QPolygonF(qpts)
+                if poly.size() >= 4:
+                    self.setPolygon(poly)
+                    return
+
+        # 3) Fallback: rectángulo por firma (w,h,angle,cx,cy)
         w = float(max(sig.width, 1e-6))
         h = float(max(sig.height, 1e-6))
         hw, hh = w * 0.5, h * 0.5
@@ -349,5 +384,11 @@ class ContourItem(QGraphicsPolygonItem):
             # bbox axis-aligned
             br = poly.boundingRect()
             cx, cy = br.center().x(), br.center().y()
-            return ContourSignature(cx, cy, br.width(), br.height(), 0.0)
+            rect_vertices = [
+                (br.left(), br.top()),
+                (br.right(), br.top()),
+                (br.right(), br.bottom()),
+                (br.left(), br.bottom()),
+            ]
+            return ContourSignature(cx, cy, br.width(), br.height(), 0.0, min_rect_vertices=rect_vertices)
         return self._sig

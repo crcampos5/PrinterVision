@@ -427,6 +427,12 @@ class MainActions:
                         self._bg_item.mapToScene(QPointF(float(x), float(y)))
                         for (x, y) in ct.polygon
                     ]
+                rect_vertices_scene = None
+                if getattr(ct, "min_rect_vertices", None) and len(ct.min_rect_vertices) >= 4:
+                    rect_vertices_scene = [
+                        self._bg_item.mapToScene(QPointF(float(x), float(y)))
+                        for (x, y) in ct.min_rect_vertices[:4]
+                    ]
 
                 principal_axis = None
                 if getattr(ct, "principal_axis", None):
@@ -445,6 +451,10 @@ class MainActions:
                     angle_deg=float(ct.angle_deg),
                     polygon=poly_scene,
                     principal_axis=principal_axis,
+                    min_rect_vertices=[
+                        (float(p.x()), float(p.y()))
+                        for p in rect_vertices_scene
+                    ] if rect_vertices_scene else None,
                 )
                 item = ContourItem()
                 item.set_from_signature(sig)

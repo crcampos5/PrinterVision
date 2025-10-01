@@ -89,6 +89,11 @@ class ContourDetector:
             # BBox rotado del componente
             rect = cv2.minAreaRect(cnt)  # ((cx,cy),(w,h),angle)
             (cx, cy), (w, h), _ = rect
+            rect_vertices = cv2.boxPoints(rect)
+            rect_vertices_list = [
+                (float(pt[0]), float(pt[1]))
+                for pt in rect_vertices
+            ]
 
             # Polígono aproximado (opcional)
             eps = self.approx_epsilon_factor * cv2.arcLength(cnt, True)
@@ -134,6 +139,7 @@ class ContourDetector:
                     angle_deg=float(angle_final),
                     polygon=poly if len(poly) >= 3 else None,
                     principal_axis=principal_axis,
+                    min_rect_vertices=rect_vertices_list,
                 )
             )
             centroids.append(Centroid(x=cx_f, y=cy_f))
