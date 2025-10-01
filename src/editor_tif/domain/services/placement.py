@@ -4,11 +4,17 @@ from __future__ import annotations
 from typing import Sequence, Tuple, List, Callable, Optional
 import math
 
+import cv2
+import numpy as np
+
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 from PySide6.QtCore import QPointF
 
 # Vista/UI
 from editor_tif.presentation.views.scene_items import CentroidItem, ImageItem, Layer
+
+# Infraestructura
+from editor_tif.infrastructure.qt_image import qimage_to_numpy
 
 # Dominio
 from editor_tif.domain.models.template import (
@@ -79,6 +85,86 @@ def placement_from_template(
     ty = target.cy + dy_scene
 
     return Placement(tx=tx, ty=ty, rotation_deg=rot, scale_x=sx, scale_y=sy, piv_x=target.cx, piv_y=target.cy)
+
+
+# =========================================================
+# Utilidades geométricas de items
+# =========================================================
+
+def get_item_min_area_rect(
+    item: ImageItem,
+    threshold: int = 127,
+    min_area: float = 100.0,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], float]]:
+    """Devuelve el rectángulo de área mínima del contenido del item en coordenadas de escena.
+
+    Analiza el pixmap del item para estimar su orientación y centro geométrico.
+    Si no se detectan contornos significativos (área < ``min_area``) devuelve ``None``.
+    """
+
+    pixmap = item.pixmap()
+    if pixmap.isNull():
+        return None
+
+    image = pixmap.toImage()
+    array = qimage_to_numpy(image)
+
+    if array.ndim == 3:
+        channels = array.shape[2]
+        if channels >= 4:
+            gray = cv2.cvtColor(array, cv2.COLOR_RGBA2GRAY)
+        elif channels == 3:
+            gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = array[..., 0]
+    else:
+        gray = array.astype(np.uint8)
+
+    gray = np.ascontiguousarray(gray)
+
+    if threshold is None or threshold < 0:
+        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:
+        _, mask = cv2.threshold(gray, int(threshold), 255, cv2.THRESH_BINARY)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    largest = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(largest)
+    if area < float(min_area):
+        return None
+
+    rect = cv2.minAreaRect(largest)
+    center_local = QPointF(float(rect[0][0]), float(rect[0][1]))
+    box = cv2.boxPoints(rect)
+
+    scene_points = [item.mapToScene(QPointF(float(x), float(y))) for x, y in box]
+    scene_center = item.mapToScene(center_local)
+
+    def _dist(p1: QPointF, p2: QPointF) -> float:
+        return math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+
+    if len(scene_points) != 4:
+        return (scene_center.x(), scene_center.y()), (0.0, 0.0), 0.0
+
+    edge_lengths = [_dist(scene_points[i], scene_points[(i + 1) % 4]) for i in range(4)]
+    if not edge_lengths:
+        return (scene_center.x(), scene_center.y()), (0.0, 0.0), 0.0
+
+    width_scene = 0.5 * (edge_lengths[0] + edge_lengths[2]) if len(edge_lengths) >= 3 else edge_lengths[0]
+    height_scene = 0.5 * (edge_lengths[1] + edge_lengths[3]) if len(edge_lengths) >= 4 else edge_lengths[0]
+
+    edge_vec_x = scene_points[1].x() - scene_points[0].x()
+    edge_vec_y = scene_points[1].y() - scene_points[0].y()
+    angle_scene = math.degrees(math.atan2(edge_vec_y, edge_vec_x))
+
+    return (
+        (scene_center.x(), scene_center.y()),
+        (float(width_scene), float(height_scene)),
+        float(angle_scene),
+    )
 
 
 # =========================================================
