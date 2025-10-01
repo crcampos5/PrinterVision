@@ -182,29 +182,36 @@ def apply_placement_to_item(
       centroide objetivo.
     - Sin escalado (1.0).
     """
-    br = item.boundingRect()
+    #br = item.boundingRect()
     #item.setTransformOriginPoint(br.center())
     #item.setOffset(-br.width() / 2.0, -br.height() / 2.0)
 
-    pivot_scene = QPointF(float(getattr(placement, "piv_x", placement.tx)),
-                          float(getattr(placement, "piv_y", placement.ty)))
+    centroide, pos, angle = get_item_min_area_rect(item)
+    pivot_scene = QPointF(centroide[0], centroide[1])
+    item.setTransformOriginPoint(pivot_scene)
 
     current_offset = item.offset()
-
-    try:
-        pivot_local = item.mapFromScene(pivot_scene)
-        pivot_relative = pivot_local - current_offset
-        if not (math.isfinite(pivot_relative.x()) and math.isfinite(pivot_relative.y())):
-            raise ValueError("invalid pivot coordinates")
-    except Exception:
-        center_local = br.center()
-        pivot_relative = center_local - current_offset
-
-    # Ajustar el origen local del pixmap para que el pivote quede en (0,0)
+    pivot_relative = pivot_scene - current_offset
     item.setOffset(-pivot_relative.x(), -pivot_relative.y())
-
-    # Con el pivote en (0,0), usarlo como origen de transformaciones
-    item.setTransformOriginPoint(QPointF(0.0, 0.0))
+    #pivot_scene = QPointF(float(getattr(placement, "piv_x", placement.tx)),
+    #                      float(getattr(placement, "piv_y", placement.ty)))
+#
+    #current_offset = item.offset()
+#
+    #try:
+    #    pivot_local = item.mapFromScene(pivot_scene)
+    #    pivot_relative = pivot_local - current_offset
+    #    if not (math.isfinite(pivot_relative.x()) and math.isfinite(pivot_relative.y())):
+    #        raise ValueError("invalid pivot coordinates")
+    #except Exception:
+    #    center_local = br.center()
+    #    pivot_relative = center_local - current_offset
+#
+    ## Ajustar el origen local del pixmap para que el pivote quede en (0,0)
+    #item.setOffset(-pivot_relative.x(), -pivot_relative.y())
+#
+    ## Con el pivote en (0,0), usarlo como origen de transformaciones
+    #item.setTransformOriginPoint(QPointF(0.0, 0.0))
 
     # Sincronizar layer <-> item para que doc.save utilice la pose real
     layer = getattr(item, "layer", None)
