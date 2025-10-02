@@ -192,6 +192,7 @@ def placement_from_template(
 
     rect_meta = template.meta.get("item_min_area_rect") if isinstance(template.meta, dict) else None
     src_vertices: Optional[List[Tuple[float, float]]] = None
+    src_vertices_scene: Optional[List[Tuple[float, float]]] = None
     if isinstance(rect_meta, dict):
         verts = rect_meta.get("vertices")
         if isinstance(verts, list) and len(verts) >= 4:
@@ -202,6 +203,25 @@ def placement_from_template(
                 ][:4]
             except (TypeError, ValueError, IndexError):
                 src_vertices = None
+        scene_verts = rect_meta.get("scene_vertices")
+        if isinstance(scene_verts, list) and len(scene_verts) >= 4:
+            try:
+                src_vertices_scene = [
+                    (float(v[0]), float(v[1]))
+                    for v in scene_verts
+                ][:4]
+            except (TypeError, ValueError, IndexError):
+                src_vertices_scene = None
+    if src_vertices_scene is None and isinstance(template.meta, dict):
+        scene_meta = template.meta.get("item_min_area_rect_scene")
+        if isinstance(scene_meta, list) and len(scene_meta) >= 4:
+            try:
+                src_vertices_scene = [
+                    (float(v[0]), float(v[1]))
+                    for v in scene_meta
+                ][:4]
+            except (TypeError, ValueError, IndexError):
+                src_vertices_scene = None
 
     if src_vertices is None:
         # Fallback: usar bbox centrado en el origen local
@@ -250,8 +270,13 @@ def placement_from_template(
     dst_vertices = [tuple(map(float, pt)) for pt in dst_vertices_np]
 
     matrix = None
-    if len(src_vertices) >= 3 and len(dst_vertices) >= 3:
+    src_pts = None
+    if src_vertices_scene and len(src_vertices_scene) >= 3:
+        src_pts = np.array(src_vertices_scene[:3], dtype=np.float32)
+    elif len(src_vertices) >= 3:
         src_pts = np.array(src_vertices[:3], dtype=np.float32)
+
+    if src_pts is not None and len(dst_vertices) >= 3:
         dst_pts = np.array(dst_vertices[:3], dtype=np.float32)
         try:
             matrix, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)

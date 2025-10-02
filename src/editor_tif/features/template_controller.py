@@ -243,6 +243,23 @@ class TemplateController:
 
         rect_meta = get_item_min_area_rect_local_vertices(source_item)
 
+        if rect_meta is not None:
+            scene_vertices: Optional[list[list[float]]] = None
+            vertices_local = rect_meta.get("vertices") if isinstance(rect_meta, dict) else None
+            if isinstance(vertices_local, list) and len(vertices_local) >= 4:
+                scene_vertices = []
+                for vertex in vertices_local[:4]:
+                    try:
+                        vx = float(vertex[0])
+                        vy = float(vertex[1])
+                    except (TypeError, ValueError, IndexError):
+                        scene_vertices = None
+                        break
+                    point = source_item.mapToScene(QPointF(vx, vy))
+                    scene_vertices.append([float(point.x()), float(point.y())])
+            if scene_vertices:
+                rect_meta["scene_vertices"] = scene_vertices
+
         meta = {"created_from": "controller.create_template"}
         if rect_meta is not None:
             meta["item_min_area_rect"] = rect_meta
