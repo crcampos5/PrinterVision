@@ -147,7 +147,10 @@ class ImageItem(QGraphicsPixmapItem):
             try:
                 a, b, tx = matrix[0]
                 c, d, ty = matrix[1]
-                t = QTransform(float(a), float(c), 0.0, float(b), float(d), 0.0, float(tx), float(ty), 1.0)
+                print("matrix: ", matrix)
+                t = QTransform(0.05, float(c), 0.0, 
+                               float(b), 0.05, 0.0, 
+                               float(tx), float(ty), 1.0)
                 self.setTransformOriginPoint(QPointF(0.0, 0.0))
                 self.setPos(0.0, 0.0)
                 self.setTransform(t, False)

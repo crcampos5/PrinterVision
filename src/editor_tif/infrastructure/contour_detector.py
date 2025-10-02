@@ -21,7 +21,7 @@ class ContourDetector:
         self,
         *,
         min_area: float = 50.0,
-        approx_epsilon_factor: float = 0.01,
+        approx_epsilon_factor: float = 0.005,
     ) -> None:
         self.min_area = float(min_area)
         self.approx_epsilon_factor = float(approx_epsilon_factor)
@@ -88,7 +88,10 @@ class ContourDetector:
 
             # BBox rotado del componente
             rect = cv2.minAreaRect(cnt)  # ((cx,cy),(w,h),angle)
+            x,y,w,h = cv2.boundingRect(cnt)
             (cx, cy), (w, h), _ = rect
+            #cx = x + w/2
+            #cy = y + h/2
             rect_vertices = cv2.boxPoints(rect)
             rect_vertices_list = [
                 (float(pt[0]), float(pt[1]))

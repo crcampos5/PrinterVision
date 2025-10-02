@@ -58,6 +58,7 @@ def _matrix_to_tuple(matrix: np.ndarray) -> Tuple[Tuple[float, float, float], Tu
 def _matrix_to_qtransform(matrix: np.ndarray) -> QTransform:
     a, b, tx = matrix[0]
     c, d, ty = matrix[1]
+    print("matrix: ", matrix)
     return QTransform(float(a), float(c), 0.0, float(b), float(d), 0.0, float(tx), float(ty), 1.0)
 
 
@@ -253,7 +254,7 @@ def placement_from_template(
         src_pts = np.array(src_vertices[:3], dtype=np.float32)
         dst_pts = np.array(dst_vertices[:3], dtype=np.float32)
         try:
-            matrix = cv2.getAffineTransform(src_pts, dst_pts)
+            matrix, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)
         except cv2.error:
             matrix = None
 
@@ -382,16 +383,21 @@ def apply_placement_to_item(
     matrix_data = getattr(placement, "matrix", None)
 
     if matrix_data is not None:
+        print("la matrix existe")
         matrix_np = np.array(matrix_data, dtype=np.float64)
         tx = float(matrix_np[0, 2])
         ty = float(matrix_np[1, 2])
         if layer is not None:
+            print("el layer existe")
             layer.transform_matrix = _matrix_to_tuple(matrix_np)
             layer.x = tx / mm_to_scene
             layer.y = ty / mm_to_scene
             layer.rotation = float(placement.rotation_deg)
-            sx = float(placement.scale_x)
-            sy = float(placement.scale_y)
+            print("placement_scale: ", placement.scale_x, placement.scale_y)
+            #sx = float(placement.scale_x)
+            #sy = float(placement.scale_y)
+            sx = 1.0
+            sy = 1.0
             if math.isfinite(sx) and math.isfinite(sy):
                 if math.isclose(sx, sy, rel_tol=1e-6, abs_tol=1e-6):
                     layer.scale = sx
